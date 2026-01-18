@@ -2,8 +2,9 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Api\MissionController;
-use App\Http\Controllers\Api\WorkflowController;
+use App\Http\Controllers\MissionController;
+use App\Http\Controllers\WorkflowController;
+
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', fn (Request $request) => $request->user()->load('roles'));

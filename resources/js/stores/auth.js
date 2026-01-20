@@ -28,6 +28,7 @@ export const useAuthStore = defineStore('auth', {
         return false
       } finally {
         this.loading = false
+        this.checked = true
       }
     },
 

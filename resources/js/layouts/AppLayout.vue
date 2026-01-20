@@ -2,96 +2,124 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import logo from '../assets/logo_ad2m.png'
 
-const auth = useAuthStore()
-const router = useRouter()
 const route = useRoute()
+const router = useRouter()
+const auth = useAuthStore()
 
-const doLogout = async () => {
+const roleNames = computed(() => {
+  const roles = auth.user?.roles ?? []
+  return roles
+    .map(r => (typeof r === 'string' ? r : r?.name))
+    .filter(Boolean)
+    .map(r => String(r).toLowerCase())
+})
+
+const hasRole = (...names) => {
+  const set = new Set(roleNames.value)
+  return names.some(n => set.has(String(n).toLowerCase()))
+}
+
+const canSeeValidation = computed(() =>
+  hasRole('administrateur', 'admin', 'chef_hierarchique', 'raf', 'coordonnateur_de_projet', 'accp')
+)
+
+const isActive = (name) => route.name === name
+
+const logout = async () => {
   await auth.logout()
   router.push({ name: 'login' })
 }
-
-const initials = computed(() => {
-  const name = auth.user?.name || ''
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  return parts.slice(0, 2).map(p => p[0]?.toUpperCase()).join('') || 'U'
-})
-
-const nav = [
-  { label: 'Tableau de bord', to: '/dashboard' },
-]
-
-const isActive = (to) => route.path === to || route.path.startsWith(to + '/')
 </script>
 
 <template>
-  <div class="min-h-screen bg-emerald-50/40">
-    <!-- Topbar -->
-    <header class="sticky top-0 z-20 bg-white/90 backdrop-blur border-b border-emerald-100">
-      <div class="h-14 px-4 sm:px-6 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <img :src="logo" alt="AD2M" class="h-8 w-8 object-contain" draggable="false" />
-          <div class="leading-tight">
-            <div class="text-sm font-semibold text-slate-900">AD2M</div>
-            <div class="text-xs text-slate-500">Gestion des missions</div>
-          </div>
-        </div>
-
-        <div class="flex items-center gap-3">
-          <div class="hidden sm:flex items-center gap-2 rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-1.5">
-            <div class="h-7 w-7 rounded-full bg-emerald-700 text-white text-xs font-semibold grid place-items-center">
-              {{ initials }}
+  <div class="min-h-screen bg-slate-50">
+    <header class="bg-white border-b">
+      <div class="max-w-6xl mx-auto px-4">
+        <div class="h-16 flex items-center justify-between gap-4">
+          <!-- Left brand -->
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-brand flex items-center justify-center">
+              <!-- leaf icon -->
+              <svg viewBox="0 0 24 24" class="w-6 h-6 text-white" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20 12c0 6-4 10-10 10S0 18 0 12C0 6 6 0 12 0c6 0 8 6 8 12Z" opacity=".0"/>
+                <path d="M20 4c-6 0-12 4-12 12 0 2 0 4 2 6 8 0 12-6 12-12 0-2 0-4-2-6Z"/>
+                <path d="M8 14c2-2 5-4 10-4"/>
+              </svg>
             </div>
-            <div class="text-sm text-slate-700 max-w-[220px] truncate">
-              {{ auth.user?.name ?? 'Utilisateur' }}
+            <div class="leading-tight">
+              <div class="font-bold text-ink">AD2M</div>
+              <div class="text-xs text-slate-500">Gestion des Missions</div>
             </div>
           </div>
 
-          <button class="text-sm font-medium text-emerald-700 hover:text-emerald-800 hover:underline" @click="doLogout">
-            Déconnexion
-          </button>
+          <!-- Center nav -->
+          <nav class="flex items-center gap-2">
+            <router-link
+              :to="{ name: 'dashboard' }"
+              class="px-3 py-2 rounded-lg text-sm flex items-center gap-2"
+              :class="isActive('dashboard') ? 'bg-brand-50 text-brand' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
+            >
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 13h7V4H4v9Zm9 7h7V11h-7v9ZM4 20h7v-5H4v5Zm9-18v7h7V2h-7Z"/>
+              </svg>
+              Tableau de bord
+            </router-link>
+
+            <router-link
+              :to="{ name: 'missions' }"
+              class="px-3 py-2 rounded-lg text-sm flex items-center gap-2"
+              :class="isActive('missions') ? 'bg-brand-50 text-brand' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
+            >
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
+              </svg>
+              Missions
+            </router-link>
+
+            <router-link
+              v-if="canSeeValidation"
+              :to="{ name: 'validation' }"
+              class="px-3 py-2 rounded-lg text-sm flex items-center gap-2"
+              :class="isActive('validation') ? 'bg-brand-50 text-brand' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
+            >
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 11l3 3L22 4"/>
+                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+              </svg>
+              Validation
+            </router-link>
+          </nav>
+
+          <!-- Right user -->
+          <div class="flex items-center gap-3">
+            <div v-if="auth.user" class="flex items-center gap-2">
+              <div class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center">
+                <svg class="w-5 h-5 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M20 21a8 8 0 0 0-16 0"/>
+                  <circle cx="12" cy="7" r="4"/>
+                </svg>
+              </div>
+              <div class="leading-tight hidden sm:block">
+                <div class="text-sm font-semibold text-slate-900">{{ auth.user.name }}</div>
+                <div class="text-xs text-slate-500">{{ auth.user.matricule || auth.user.email }}</div>
+              </div>
+            </div>
+
+            <button
+              v-if="auth.user"
+              class="px-3 py-2 rounded-lg border bg-white text-sm hover:bg-slate-50"
+              @click="logout"
+            >
+              Déconnexion
+            </button>
+          </div>
         </div>
       </div>
     </header>
 
-    <div class="flex">
-      <!-- Sidebar -->
-      <aside class="w-64 hidden md:block bg-white border-r border-emerald-100 min-h-[calc(100vh-56px)]">
-        <div class="p-4">
-          <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-            Navigation
-          </div>
-
-          <nav class="space-y-1">
-            <RouterLink
-              v-for="item in nav"
-              :key="item.to"
-              :to="item.to"
-              class="group flex items-center gap-3 px-3 py-2 rounded-xl transition"
-              :class="[
-                isActive(item.to)
-                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-100'
-                  : 'text-slate-700 hover:bg-slate-50'
-              ]"
-            >
-              <span
-                class="h-2 w-2 rounded-full"
-                :class="isActive(item.to) ? 'bg-emerald-700' : 'bg-slate-300 group-hover:bg-slate-400'"
-              ></span>
-              <span class="text-sm font-medium">{{ item.label }}</span>
-            </RouterLink>
-          </nav>
-        </div>
-      </aside>
-
-      <!-- Content -->
-      <main class="flex-1 p-4 sm:p-6">
-        <div class="max-w-6xl mx-auto">
-          <router-view />
-        </div>
-      </main>
-    </div>
+    <main class="max-w-6xl mx-auto px-4 py-6">
+      <router-view />
+    </main>
   </div>
 </template>

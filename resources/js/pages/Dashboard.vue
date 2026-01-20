@@ -8,7 +8,6 @@ const auth = useAuthStore()
 
 const missions = ref([])
 const loading = ref(false)
-const error = ref('')
 
 const roleNames = computed(() => {
   const roles = auth.user?.roles ?? []
@@ -23,6 +22,14 @@ const hasRole = (...names) => {
   return names.some(n => set.has(String(n).toLowerCase()))
 }
 
+const isValidator = computed(() =>
+  hasRole('administrateur', 'admin', 'chef_hierarchique', 'raf', 'coordonnateur_de_projet', 'accp')
+)
+
+/**
+ * Quelle étape doit valider ce rôle ?
+ * (sert juste à compter et afficher le bouton "X mission à valider")
+ */
 const pendingKey = computed(() => {
   if (hasRole('chef_hierarchique')) return 'en_attente_ch'
   if (hasRole('raf')) return 'valide_ch'
@@ -32,27 +39,45 @@ const pendingKey = computed(() => {
   return null
 })
 
+/**
+ * ✅ IMPORTANT: dashboard = PERSONNEL
+ * Donc on affiche uniquement "mes missions" même si l'API retourne tout
+ */
+const myMissions = computed(() => {
+  const uid = auth.user?.id
+  if (!uid) return []
+
+  return missions.value.filter(m => {
+    const demandeurId =
+      m.demandeur_id ?? m.demandeur?.id ?? m.user_id ?? m.created_by
+    return Number(demandeurId) === Number(uid)
+  })
+})
+
 const counts = computed(() => {
-  const c = { total: 0, brouillon: 0, en_attente: 0, approuvees: 0, rejetees: 0 }
-  c.total = missions.value.length
-  for (const m of missions.value) {
+  const list = myMissions.value
+  const c = { total: list.length, brouillon: 0, en_attente: 0, approuvees: 0, rejetees: 0 }
+
+  for (const m of list) {
     const s = String(m.statut_actuel || '').toLowerCase()
+
     if (s === 'brouillon') c.brouillon++
-    if (s === 'en_attente_ch') c.en_attente++
+    if (['en_attente_ch', 'valide_ch', 'valide_raf', 'valide_cp'].includes(s)) c.en_attente++
     if (s.startsWith('rejet')) c.rejetees++
     if (['valide_cp', 'avance_payee', 'en_cours', 'cloturee'].includes(s)) c.approuvees++
   }
+
   return c
 })
 
 const pendingToValidate = computed(() => {
-  if (!pendingKey.value) return 0
+  if (!isValidator.value || !pendingKey.value) return 0
   const key = pendingKey.value
   return missions.value.filter(m => String(m.statut_actuel || '').toLowerCase() === key).length
 })
 
 const recent = computed(() => {
-  const arr = [...missions.value]
+  const arr = [...myMissions.value]
   arr.sort((a, b) => (b.id || 0) - (a.id || 0))
   return arr.slice(0, 5)
 })
@@ -60,34 +85,40 @@ const recent = computed(() => {
 const prettyStatus = (s) => {
   const map = {
     brouillon: 'Brouillon',
-    en_attente_ch: 'Soumise',
-    valide_ch: 'Validée CH',
-    valide_raf: 'Validée RAF',
-    valide_cp: 'Approuvée',
+    en_attente_ch: 'En attente CH',
+    valide_ch: 'En attente RAF',
+    valide_raf: 'En attente CP',
+    valide_cp: 'En attente ACCP',
     avance_payee: 'Avance payée',
     en_cours: 'En cours',
     cloturee: 'Clôturée',
   }
   const k = String(s || '').toLowerCase()
-  return map[k] ?? s
+  if (k.startsWith('rejet')) return 'Rejetée'
+  return map[k] ?? (s || '—')
+}
+
+const statusBadgeClass = (s) => {
+  const k = String(s || '').toLowerCase()
+  if (k === 'brouillon') return 'bg-slate-100 text-slate-700'
+  if (k === 'en_attente_ch') return 'bg-blue-50 text-blue-700'
+  if (k === 'valide_ch' || k === 'valide_raf' || k === 'valide_cp') return 'bg-amber-50 text-amber-700'
+  if (k.startsWith('rejet')) return 'bg-rose-50 text-rose-700'
+  if (['avance_payee', 'en_cours', 'cloturee'].includes(k)) return 'bg-emerald-50 text-emerald-700'
+  return 'bg-slate-100 text-slate-700'
+}
+
+const fmtMoney = (v) => {
+  const n = Number(v || 0)
+  if (!Number.isFinite(n)) return '—'
+  return n.toLocaleString('fr-FR') + ' Ar'
 }
 
 const load = async () => {
   loading.value = true
-  error.value = ''
   try {
-    if (!window.axios) {
-      throw new Error("window.axios est undefined (bootstrap.js n'est pas chargé).")
-    }
     const res = await window.axios.get('/api/missions')
-    missions.value = res.data?.missions ?? []
-  } catch (e) {
-    // ✅ empêche le crash (page blanche)
-    error.value =
-      e?.response?.data?.message ||
-      e?.message ||
-      'Erreur lors du chargement des missions.'
-    missions.value = []
+    missions.value = res.data?.missions ?? res.data ?? []
   } finally {
     loading.value = false
   }
@@ -98,15 +129,17 @@ onMounted(load)
 
 <template>
   <div class="space-y-6">
+    <!-- Header -->
     <div>
       <h1 class="text-3xl font-extrabold text-slate-900">
-        Bienvenue, {{ auth.user?.name || 'Utilisateur' }}
+        Bienvenue, {{ auth.user?.name }}
       </h1>
       <p class="text-slate-600">
         Département: {{ auth.user?.unite || '—' }} • {{ auth.user?.poste || '—' }}
       </p>
     </div>
 
+    <!-- Actions -->
     <div class="flex flex-wrap gap-3">
       <button
         class="px-4 py-2 rounded-xl bg-brand text-white font-semibold shadow-sm hover:opacity-95"
@@ -116,18 +149,15 @@ onMounted(load)
       </button>
 
       <button
-        v-if="pendingKey"
+        v-if="isValidator && pendingToValidate > 0"
         class="px-4 py-2 rounded-xl bg-blue-600 text-white font-semibold shadow-sm hover:opacity-95"
         @click="router.push({ name: 'validation' })"
       >
-        {{ pendingToValidate }} mission à valider
+        {{ pendingToValidate }} mission{{ pendingToValidate > 1 ? 's' : '' }} à valider
       </button>
     </div>
 
-    <div v-if="error" class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-      {{ error }}
-    </div>
-
+    <!-- Cards (MES MISSIONS) -->
     <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
       <div class="bg-white rounded-2xl border shadow-sm p-4">
         <div class="text-sm text-slate-500">Total missions</div>
@@ -151,6 +181,7 @@ onMounted(load)
       </div>
     </div>
 
+    <!-- Recent (MES MISSIONS) -->
     <div class="bg-white rounded-2xl border shadow-sm overflow-hidden">
       <div class="px-5 py-4 border-b flex items-center justify-between">
         <div class="font-bold text-slate-900">Missions récentes</div>
@@ -172,15 +203,21 @@ onMounted(load)
           class="w-full text-left px-5 py-4 hover:bg-slate-50 flex items-center justify-between gap-4"
           @click="router.push({ name: 'missions.show', params: { id: m.id } })"
         >
-          <div>
-            <div class="font-semibold text-slate-900">
+          <div class="min-w-0">
+            <div class="font-semibold text-slate-900 truncate">
               {{ m.objet || ('Mission #' + m.id) }}
-              <span class="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs bg-slate-100 text-slate-700">
+              <span
+                class="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs"
+                :class="statusBadgeClass(m.statut_actuel)"
+              >
                 {{ prettyStatus(m.statut_actuel) }}
               </span>
             </div>
+
             <div class="text-sm text-slate-600">
               {{ m.destination || '—' }}
+              <span v-if="m.date_debut && m.date_fin"> • {{ m.date_debut }} - {{ m.date_fin }}</span>
+              <span v-if="m.budget"> • {{ fmtMoney(m.budget) }}</span>
             </div>
           </div>
 

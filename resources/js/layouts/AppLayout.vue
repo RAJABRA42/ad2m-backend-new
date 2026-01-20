@@ -7,17 +7,28 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
+// ✅ normalise: minuscules + pas d'accents + espaces/tirets => underscore
+const normRole = (v) =>
+  String(v ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')   // enlève accents
+    .toLowerCase()
+    .trim()
+    .replace(/[\s-]+/g, '_')           // espaces/tirets => _
+    .replace(/_+/g, '_')
+
 const roleNames = computed(() => {
+  // supporte roles = ["raf"] ou roles=[{name:"RAF"}]
   const roles = auth.user?.roles ?? []
   return roles
     .map(r => (typeof r === 'string' ? r : r?.name))
     .filter(Boolean)
-    .map(r => String(r).toLowerCase())
+    .map(normRole)
 })
 
 const hasRole = (...names) => {
   const set = new Set(roleNames.value)
-  return names.some(n => set.has(String(n).toLowerCase()))
+  return names.some(n => set.has(normRole(n)))
 }
 
 const canSeeValidation = computed(() =>
@@ -40,9 +51,7 @@ const logout = async () => {
           <!-- Left brand -->
           <div class="flex items-center gap-3">
             <div class="w-10 h-10 rounded-xl bg-brand flex items-center justify-center">
-              <!-- leaf icon -->
               <svg viewBox="0 0 24 24" class="w-6 h-6 text-white" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M20 12c0 6-4 10-10 10S0 18 0 12C0 6 6 0 12 0c6 0 8 6 8 12Z" opacity=".0"/>
                 <path d="M20 4c-6 0-12 4-12 12 0 2 0 4 2 6 8 0 12-6 12-12 0-2 0-4-2-6Z"/>
                 <path d="M8 14c2-2 5-4 10-4"/>
               </svg>
@@ -77,6 +86,7 @@ const logout = async () => {
               Missions
             </router-link>
 
+            <!-- ✅ Validation visible seulement si rôle validateur -->
             <router-link
               v-if="canSeeValidation"
               :to="{ name: 'validation' }"

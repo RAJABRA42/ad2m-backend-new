@@ -19,7 +19,7 @@ class MissionController extends Controller
     {
         $user = $request->user()->load('roles');
 
-        $query = Mission::with(['demandeur:id,name']);
+        $query = Mission::with(['demandeur:id,name,matricule']);
 
         $isDecisionMaker = $user->hasRole([
             'admin',
@@ -29,8 +29,9 @@ class MissionController extends Controller
             'chef_hierarchique',
             'coordonnateur_de_projet'
         ]);
+        $mine = $request->boolean('mine');
 
-        if (!$isDecisionMaker) {
+      if ($mine || !$isDecisionMaker) {
             $query->where('demandeur_id', $user->id);
         }
 

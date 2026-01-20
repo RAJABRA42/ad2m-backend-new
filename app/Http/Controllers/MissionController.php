@@ -70,16 +70,18 @@ class MissionController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'objet' => 'required|string|max:255',
-            'destination' => 'required|string|max:255',
-            'motif' => 'nullable|string',
-            'date_depart' => 'nullable|date',
-            'date_retour' => 'nullable|date|after_or_equal:date_depart',
-            'montant_avance' => 'nullable|numeric|min:0',
-        ]);
+    'objet' => 'required|string|max:255',
+    'destination' => 'required|string|max:255',
+    'motif' => 'nullable|string',
+    'moyen_deplacement' => 'nullable|string|max:100',
+    'date_debut' => 'nullable|date',
+    'date_fin' => 'nullable|date|after_or_equal:date_debut',
+    'montant_avance_demande' => 'nullable|numeric|min:0',
+]);
 
-        $data['demandeur_id'] = Auth::id();
-        $data['statut_actuel'] = 'brouillon';
+$data['demandeur_id'] = Auth::id();
+$data['statut_actuel'] = 'brouillon';
+
 
         try {
             $mission = Mission::create($data);
@@ -109,13 +111,14 @@ class MissionController extends Controller
         }
 
         $data = $request->validate([
-            'objet' => 'sometimes|required|string|max:255',
-            'destination' => 'sometimes|required|string|max:255',
-            'motif' => 'nullable|string',
-            'date_depart' => 'nullable|date',
-            'date_retour' => 'nullable|date|after_or_equal:date_depart',
-            'montant_avance' => 'nullable|numeric|min:0',
-        ]);
+    'objet' => 'sometimes|required|string|max:255',
+    'destination' => 'sometimes|required|string|max:255',
+    'motif' => 'nullable|string',
+    'moyen_deplacement' => 'nullable|string|max:100',
+    'date_debut' => 'nullable|date',
+    'date_fin' => 'nullable|date|after_or_equal:date_debut',
+    'montant_avance_demande' => 'nullable|numeric|min:0',
+]);
 
         $mission->update($data);
 

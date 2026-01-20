@@ -1,9 +1,11 @@
+// resources/js/stores/auth.js
 import { defineStore } from 'pinia'
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
-    user: null,     // null = pas encore chargé / inconnu
-    loading: false,
+    user: null,      // null = pas connecté / inconnu
+    loading: false,  // état de chargement global
+    checked: false,  // ✅ indique si on a déjà tenté fetchUser au démarrage
   }),
 
   getters: {
@@ -11,6 +13,10 @@ export const useAuthStore = defineStore('auth', {
   },
 
   actions: {
+    /**
+     * Récupère l'utilisateur connecté (session existante)
+     * Utilisé par le router guard au démarrage.
+     */
     async fetchUser() {
       this.loading = true
       try {
@@ -25,25 +31,38 @@ export const useAuthStore = defineStore('auth', {
       }
     },
 
+    /**
+     * Connexion
+     * - Sanctum CSRF cookie
+     * - POST /login
+     * - stocke res.data.user
+     */
     async login(payload) {
       this.loading = true
       try {
-        // ✅ Important si tu utilises Sanctum / session
+        // ✅ Nécessaire si tu utilises Sanctum / session cookies
         await window.axios.get('/sanctum/csrf-cookie')
 
         const res = await window.axios.post('/login', payload)
         this.user = res.data.user
+        this.checked = true // ✅ on sait qu'on est connecté
         return true
       } catch (e) {
         console.log('LOGIN ERROR STATUS =', e?.response?.status)
         console.log('LOGIN ERROR DATA =', e?.response?.data)
         this.user = null
+        this.checked = true // ✅ on a tenté
         return false
       } finally {
         this.loading = false
       }
     },
 
+    /**
+     * Déconnexion
+     * - POST /logout (ignore erreurs)
+     * - reset user
+     */
     async logout() {
       this.loading = true
       try {
@@ -52,6 +71,7 @@ export const useAuthStore = defineStore('auth', {
         // ignore
       } finally {
         this.user = null
+        this.checked = true
         this.loading = false
       }
     },

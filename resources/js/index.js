@@ -1,17 +1,37 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 
-import Home from './pages/Home.vue'
-import About from './pages/About.vue'
+// Layouts
+import AuthLayout from './layouts/AuthLayout.vue'
+import AppLayout from './layouts/AppLayout.vue'
+
+// Pages
 import Login from './pages/Login.vue'
+import Dashboard from './pages/Dashboard.vue'
 
 const routes = [
-  { path: '/', name: 'login', component: Login },
-  { path: '/login', redirect: '/' },
-  { path: '/Login', redirect: '/' },
+  // GUEST: LOGIN
+  {
+    path: '/login',
+    component: AuthLayout,
+    children: [
+      { path: '', name: 'login', component: Login, meta: { guestOnly: true } },
+    ],
+  },
 
-  { path: '/home', name: 'home', component: Home, meta: { requiresAuth: true } },
-  { path: '/about', name: 'about', component: About, meta: { requiresAuth: true } },
+  // AUTH: APP
+  {
+    path: '/',
+    component: AppLayout,
+    meta: { requiresAuth: true },
+    children: [
+      { path: '', redirect: { name: 'dashboard' } },
+      { path: 'dashboard', name: 'dashboard', component: Dashboard },
+    ],
+  },
+
+  // fallback
+  { path: '/:pathMatch(.*)*', redirect: '/login' },
 ]
 
 const router = createRouter({
@@ -19,22 +39,21 @@ const router = createRouter({
   routes,
 })
 
-// ✅ Guard simple : si route protégée et pas connecté → redirect login
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
 
-  // Si on n’a pas encore essayé de charger l’utilisateur
-  if (auth.user === null && !auth.loading) {
+  // Charger l’utilisateur une seule fois
+  if (!auth.checked && !auth.loading) {
     await auth.fetchUser()
+    auth.checked = true
   }
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     return { name: 'login' }
   }
 
-  // Si déjà connecté et essaie d’aller sur login → redirect home
-  if ((to.name === 'login') && auth.isAuthenticated) {
-    return { name: 'home' }
+  if (to.meta.guestOnly && auth.isAuthenticated) {
+    return { name: 'dashboard' }
   }
 })
 

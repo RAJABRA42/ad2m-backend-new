@@ -155,7 +155,7 @@ class WorkflowController extends Controller
             return response()->json(['message' => 'Mission déjà engagée'], 422);
         }
 
-        if (!$request->user()->hasRole(['chef_hierarchique','raf','coordonnateur_de_projet','admin'])) {
+        if (!$request->user()->hasRole(['chef_hierarchique','raf','coordonnateur_de_projet','admin','administrateur'])) {
             return response()->json(['message' => 'Accès refusé'], 403);
         }
 

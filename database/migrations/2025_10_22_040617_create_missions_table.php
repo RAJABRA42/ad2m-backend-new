@@ -24,9 +24,11 @@ return new class extends Migration
             $table->string('objet', 255)->nullable();
             $table->string('destination', 255)->nullable();
             $table->string('moyen_deplacement', 100)->nullable();
+            $table->text('motif')->nullable();
+
             $table->date('date_debut')->nullable();
             $table->date('date_fin')->nullable();
-
+            
             // --- SUIVI FINANCIER ---
             $table->decimal('montant_avance_demande', 10, 2)->nullable();
             $table->decimal('montant_total_justifie', 10, 2)->nullable();
@@ -42,6 +44,8 @@ return new class extends Migration
  'en_cours',
  'cloturee'
 ])->default('brouillon');
+
+$table->timestamp('date_cloture')->nullable();
 
 
             $table->dateTime('date_echeance_audit')->nullable();

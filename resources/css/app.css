@@ -1,11 +1,23 @@
-@import 'tailwindcss';
+@import "tailwindcss";
 
-@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
-@source '../../storage/framework/views/*.php';
-@source '../**/*.blade.php';
-@source '../**/*.js';
+@source "../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php";
+@source "../../storage/framework/views/*.php";
+@source "../**/*.blade.php";
+@source "../**/*.js";
+@source "../**/*.vue";
 
 @theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-        'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+
+  /* AD2M brand colors (Tailwind v4 - CSS-first) */
+  --color-ad2m-primary: #e73a01;
+  --color-ad2m-primary2: #c24a18;
+  --color-ad2m-success: #0eb101;
+  --color-ad2m-muted: #d3ced7;
+  --color-ad2m-warning: #a49f06;
+  --color-ad2m-surface: #ab9c9a;
+  --color-ad2m-accent: #579223;
+  --color-ad2m-accent2: #a46402;
+  --color-ad2m-soft: #b6715e;
 }

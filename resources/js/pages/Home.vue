@@ -11,16 +11,35 @@ const router = useRouter();
 
 const getStatusStyles = (status) => {
   switch (status) {
-    case 'EN_COURS':
+    case 'brouillon':
+      return 'bg-gray-100 text-gray-700 border-gray-300';
+
+    case 'en_attente_ch':
       return 'bg-yellow-100 text-yellow-700 border-yellow-300';
-    case 'TERMINEE':
+
+    case 'valide_ch':
+      return 'bg-blue-100 text-blue-700 border-blue-300';
+
+    case 'valide_raf':
+      return 'bg-indigo-100 text-indigo-700 border-indigo-300';
+
+    case 'valide_cp':
+      return 'bg-purple-100 text-purple-700 border-purple-300';
+
+    case 'avance_payee':
+      return 'bg-emerald-100 text-emerald-700 border-emerald-300';
+
+    case 'en_cours':
+      return 'bg-orange-100 text-orange-700 border-orange-300';
+
+    case 'cloturee':
       return 'bg-green-100 text-green-700 border-green-300';
-    case 'ANNULEE':
-      return 'bg-red-100 text-red-700 border-red-300';
+
     default:
       return 'bg-gray-100 text-gray-600 border-gray-300';
   }
 };
+
 
 const loadMissions = async () => {
   loading.value = true;

@@ -23,7 +23,7 @@ class UserSeeder extends Seeder
             'administrateur',
             'chef_hierarchique',
             'raf',
-            'Coordonnateur_de_projet',
+            'coordonnateur_de_projet',
             'accp',
             'missionnaire',
         ];
@@ -117,7 +117,7 @@ class UserSeeder extends Seeder
             'chef_hierarchique_id' => $adminUser->id,
         ]);
         // ATTRIBUTION VIA LA TABLE PIVOT
-        $cp->roles()->attach($roleIds['Coordonnateur_de_projet']);
+        $cp->roles()->attach($roleIds['coordonnateur_de_projet']);
         Log::info("Utilisateur Chef de Projet créé.");
 
 

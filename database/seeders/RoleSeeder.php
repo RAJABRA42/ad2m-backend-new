@@ -43,7 +43,7 @@ class RoleSeeder extends Seeder
 
         // 5. Chef de Projet (CP) - Validation du budget projet
         Role::create([
-            'name' => 'Coordonnateur_de_projet',
+            'name' => 'coordonnateur_de_projet',
             'display_name' => 'Coordonnateur Projet (CP)',
             'description' => 'Supervision et validation des missions de son projet.'
         ]);

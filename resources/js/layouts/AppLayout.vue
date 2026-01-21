@@ -34,6 +34,10 @@ const hasRole = (...names) => {
 const canSeeValidation = computed(() =>
   hasRole('administrateur', 'admin', 'chef_hierarchique', 'raf', 'coordonnateur_de_projet', 'accp')
 )
+const canSeeAccp = computed(() =>
+  hasRole('accp', 'admin', 'administrateur')
+)
+
 
 const isActive = (name) => route.name === name
 
@@ -99,9 +103,23 @@ const logout = async () => {
               </svg>
               Validation
             </router-link>
+
+            <router-link
+              v-if="canSeeAccp"
+              :to="{ name: 'accp' }"
+              class="px-3 py-2 rounded-lg text-sm flex items-center gap-2"
+              :class="isActive('accp') ? 'bg-brand-50 text-brand' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
+            >
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 1v22"/>
+                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7H15a3.5 3.5 0 0 1 0 7H6"/>
+              </svg>
+              Suivi ACCP
+            </router-link>
           </nav>
 
           <!-- Right user -->
+           
           <div class="flex items-center gap-3">
             <div v-if="auth.user" class="flex items-center gap-2">
               <div class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center">

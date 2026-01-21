@@ -9,9 +9,9 @@ import Dashboard from './pages/Dashboard.vue'
 import Mission from './pages/Mission.vue'
 import Validation from './pages/Validation.vue'
 import PayerAvance from './pages/PayerAvance.vue'
-import MissionShow from './pages/MissionShow.vue' // ✅ AJOUT
+import SuiviAccp from './pages/SuiviAccp.vue'
 
-// ✅ normalisation robuste (accents, espaces, tirets, etc.)
+// ✅ normalisation robuste
 const normRole = (v) =>
   String(v ?? '')
     .normalize('NFD')
@@ -47,14 +47,8 @@ const routes = [
     meta: { requiresAuth: true },
     children: [
       { path: 'dashboard', name: 'dashboard', component: Dashboard },
-
-      // ✅ Mes missions
       { path: 'missions', name: 'missions', component: Mission },
 
-      // ✅ Détail mission (évite page blanche sur 👁)
-      { path: 'missions/:id', name: 'missions.show', component: MissionShow },
-
-      // ✅ Validation (file de traitement)
       {
         path: 'validation',
         name: 'validation',
@@ -62,11 +56,19 @@ const routes = [
         meta: { requiresValidator: true },
       },
 
-      // ✅ page ACCP dédiée (enregistrer avance -> confirmer paiement)
+      // ✅ paiement ACCP (page existante)
       {
         path: 'missions/:id/payer',
         name: 'missions.payer',
         component: PayerAvance,
+        meta: { requiresAccp: true },
+      },
+
+      // ✅ nouveau : suivi ACCP (PJ + clôture + raccourci payer)
+      {
+        path: 'accp',
+        name: 'accp',
+        component: SuiviAccp,
         meta: { requiresAccp: true },
       },
 
@@ -85,34 +87,26 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
 
-  // ✅ évite fetchUser en boucle
   if (!auth.checked) {
     await auth.fetchUser()
     auth.checked = true
   }
 
-  // ✅ auth guard
   const needsAuth = to.matched.some(r => r.meta.requiresAuth)
   if (needsAuth && !auth.isAuthenticated) return { name: 'login' }
 
   if (to.name === 'login' && auth.isAuthenticated) return { name: 'dashboard' }
 
-  // ✅ validator guard
   const needsValidator = to.matched.some(r => r.meta.requiresValidator)
   if (needsValidator) {
-    const ok = hasRole(
-      auth.user,
-      'administrateur',
-      'admin',
-      'chef_hierarchique',
-      'raf',
-      'coordonnateur_de_projet',
-      'accp'
+    const ok = hasRole(auth.user,
+      'administrateur', 'admin',
+      'chef_hierarchique', 'raf',
+      'coordonnateur_de_projet', 'accp'
     )
     if (!ok) return { name: 'dashboard' }
   }
 
-  // ✅ accp guard
   const needsAccp = to.matched.some(r => r.meta.requiresAccp)
   if (needsAccp) {
     const ok = hasRole(auth.user, 'accp', 'admin', 'administrateur')

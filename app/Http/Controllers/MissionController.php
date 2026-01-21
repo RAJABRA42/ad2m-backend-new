@@ -46,24 +46,23 @@ class MissionController extends Controller
      * DETAILS D'UNE MISSION
      */
     public function show(Request $request, Mission $mission)
-    {
-        $user = $request->user()->load('roles');
+{
+    $user = $request->user();
 
-        $isOwner = $mission->demandeur_id === $user->id;
-        $isStaff = $user->hasRole([
-            'admin','administrateur','raf','accp','chef_hierarchique','coordonnateur_de_projet'
-        ]);
-
-        if (!$isOwner && !$isStaff) {
-            return response()->json(['message' => 'Accès refusé'], 403);
-        }
-
-        $mission->load('demandeur:id,name');
-
-        return response()->json([
-            'mission' => $mission
-        ]);
+    // missionnaire ne voit que ses missions
+    if ($user->hasRole(['missionnaire']) && $mission->demandeur_id !== $user->id) {
+        return response()->json(['message' => 'Accès refusé'], 403);
     }
+
+    $mission->load([
+        'demandeur',
+        'avances' => function ($q) {
+            $q->orderByDesc('date_operation')->with('executedBy');
+        },
+    ]);
+
+    return response()->json(['mission' => $mission]);
+}
 
     /**
      * CREER UNE MISSION (BROUILLON)

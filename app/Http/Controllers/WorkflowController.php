@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Controllers\Controller;
 use App\Models\Mission;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class WorkflowController extends Controller
 {
@@ -41,7 +41,7 @@ class WorkflowController extends Controller
 
         $mission->update([
             'statut_actuel' => 'valide_ch',
-            'validation_ch_id' => $request->user()->id
+            'validation_ch_id' => $request->user()->id,
         ]);
 
         return response()->json(['message' => 'Validée CH']);
@@ -62,7 +62,7 @@ class WorkflowController extends Controller
 
         $mission->update([
             'statut_actuel' => 'valide_raf',
-            'validation_raf_id' => $request->user()->id
+            'validation_raf_id' => $request->user()->id,
         ]);
 
         return response()->json(['message' => 'Validée RAF']);
@@ -83,7 +83,7 @@ class WorkflowController extends Controller
 
         $mission->update([
             'statut_actuel' => 'valide_cp',
-            'validation_cp_id' => $request->user()->id
+            'validation_cp_id' => $request->user()->id,
         ]);
 
         return response()->json(['message' => 'Validée CP']);
@@ -91,53 +91,35 @@ class WorkflowController extends Controller
 
     /**
      * VALIDE CP → AVANCE PAYÉE
+     * ✅ On force l'existence d'une avance "paiement"
      */
-    /**
- * VALIDE CP → AVANCE PAYÉE (uniquement si une avance "paiement" existe)
- */
-public function payer(Request $request, Mission $mission)
-{
-    if (!$request->user()->hasRole(['accp','admin','administrateur'])) {
-        return response()->json(['message' => 'Rôle ACCP requis'], 403);
+    public function payer(Request $request, Mission $mission)
+    {
+        if (!$request->user()->hasRole(['accp','admin','administrateur'])) {
+            return response()->json(['message' => 'Rôle ACCP requis'], 403);
+        }
+
+        if ($mission->statut_actuel !== 'valide_cp') {
+            return response()->json(['message' => 'Statut invalide'], 422);
+        }
+
+        $hasPaiement = $mission->avances()
+            ->where('type_operation', 'paiement')
+            ->exists();
+
+        if (!$hasPaiement) {
+            return response()->json([
+                'message' => "Impossible : enregistrez d'abord l'avance (type 'paiement') avant de confirmer."
+            ], 422);
+        }
+
+        $mission->update(['statut_actuel' => 'avance_payee']);
+
+        return response()->json(['message' => 'Avance payée']);
     }
-
-    if ($mission->statut_actuel !== 'valide_cp') {
-        return response()->json(['message' => 'Statut invalide'], 422);
-    }
-
-    // ✅ on exige l'avance enregistrée avant de payer
-    $data = $request->validate([
-        'avance_id' => ['required', 'integer'],
-    ]);
-
-    // ✅ vérifier que l'avance existe et appartient à cette mission
-    $avance = $mission->avances()
-        ->where('id', $data['avance_id'])
-        ->where('type_operation', 'paiement')
-        ->first();
-
-    if (!$avance) {
-        return response()->json([
-            'message' => "Impossible de payer : aucune avance 'paiement' valide n'est enregistrée pour cette mission."
-        ], 422);
-    }
-
-    // (Optionnel) empêcher double paiement
-    if ($mission->statut_actuel === 'avance_payee') {
-        return response()->json(['message' => 'Déjà payée'], 422);
-    }
-
-    $mission->update(['statut_actuel' => 'avance_payee']);
-
-    return response()->json([
-        'message' => 'Paiement confirmé',
-        'mission' => $mission->fresh(),
-        'avance' => $avance,
-    ]);
-}
 
     /**
-     * AVANCE PAYÉE → EN COURS
+     * AVANCE PAYÉE → EN COURS (action missionnaire)
      */
     public function commencer(Request $request, Mission $mission)
     {
@@ -155,7 +137,34 @@ public function payer(Request $request, Mission $mission)
     }
 
     /**
-     * EN COURS → CLOTURÉE
+     * Régulariser PJ (ACCP)
+     */
+    public function regulariserPJ(Request $request, Mission $mission)
+    {
+        $request->validate([
+            'note_regularisation' => 'nullable|string|max:5000',
+        ]);
+
+        if (!$request->user()->hasRole(['accp', 'admin', 'administrateur'])) {
+            return response()->json(['message' => 'Rôle ACCP requis'], 403);
+        }
+
+        if (!in_array($mission->statut_actuel, ['avance_payee', 'en_cours'], true)) {
+            return response()->json(['message' => 'Statut invalide'], 422);
+        }
+
+        $mission->update([
+            'pj_regularise' => true,
+            'date_pj_regularise' => now(),
+            'note_regularisation' => $request->input('note_regularisation'),
+        ]);
+
+        return response()->json(['message' => 'PJ régularisées']);
+    }
+
+    /**
+     * EN COURS → CLOTURÉE (ACCP)
+     * ✅ Bloqué si PJ non régularisées
      */
     public function cloturer(Request $request, Mission $mission)
     {
@@ -166,16 +175,19 @@ public function payer(Request $request, Mission $mission)
         if ($mission->statut_actuel !== 'en_cours') {
             return response()->json(['message' => 'Statut invalide'], 422);
         }
+
         if (!$mission->pj_regularise) {
-        return response()->json([
-         'message' => "Impossible de clôturer : PJ non régularisées."
-        ], 422);
+            return response()->json(['message' => 'Régularisez les PJ avant clôture.'], 422);
         }
 
-        $mission->update([
-            'statut_actuel' => 'cloturee',
-            'date_cloture' => now()
-        ]);
+        $data = ['statut_actuel' => 'cloturee'];
+
+        // ✅ évite erreur SQL si la colonne n'existe pas encore
+        if (Schema::hasColumn('missions', 'date_cloture')) {
+            $data['date_cloture'] = now();
+        }
+
+        $mission->update($data);
 
         return response()->json(['message' => 'Mission clôturée']);
     }
@@ -185,7 +197,7 @@ public function payer(Request $request, Mission $mission)
      */
     public function rejeter(Request $request, Mission $mission)
     {
-        if (in_array($mission->statut_actuel, ['avance_payee','en_cours','cloturee'])) {
+        if (in_array($mission->statut_actuel, ['avance_payee','en_cours','cloturee'], true)) {
             return response()->json(['message' => 'Mission déjà engagée'], 422);
         }
 
@@ -198,35 +210,3 @@ public function payer(Request $request, Mission $mission)
         return response()->json(['message' => 'Mission rejetée']);
     }
 }
-
-/**
- * Marquer PJ régularisées (ACCP)
- * Peut être fait quand la mission est en cours (ou avance_payee, selon ta logique).
- */
-public function regulariserPJ(Request $request, Mission $mission)
-{
-    if (!$request->user()->hasRole(['accp','admin','administrateur'])) {
-        return response()->json(['message' => 'Rôle ACCP requis'], 403);
-    }
-
-    // ✅ choix logique : PJ régularisées quand mission est en cours (revenue)
-    if (!in_array($mission->statut_actuel, ['en_cours', 'avance_payee'])) {
-        return response()->json(['message' => 'Statut invalide pour régulariser'], 422);
-    }
-
-    $data = $request->validate([
-        'note_regularisation' => ['nullable', 'string'],
-    ]);
-
-    $mission->update([
-        'pj_regularise' => true,
-        'date_pj_regularise' => now(),
-        'note_regularisation' => $data['note_regularisation'] ?? null,
-    ]);
-
-    return response()->json([
-        'message' => 'PJ marquées comme régularisées',
-        'mission' => $mission->fresh(),
-    ]);
-}
-

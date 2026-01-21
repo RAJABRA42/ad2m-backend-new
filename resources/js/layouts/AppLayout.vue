@@ -32,14 +32,15 @@ const hasRole = (...names) => {
 }
 
 const canSeeValidation = computed(() =>
-  hasRole('administrateur', 'admin', 'chef_hierarchique', 'raf', 'coordonnateur_de_projet', 'accp')
+  hasRole('administrateur', 'admin', 'chef_hierarchique', 'raf', 'coordonnateur_de_projet', )
 )
 const canSeeAccp = computed(() =>
   hasRole('accp', 'admin', 'administrateur')
 )
 
 
-const isActive = (name) => route.name === name
+const isActive = (...names) =>
+  names.some(n => route.name === n || String(route.name || '').startsWith(n + '.'))
 
 const logout = async () => {
   await auth.logout()

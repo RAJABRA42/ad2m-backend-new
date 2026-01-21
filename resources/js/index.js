@@ -7,8 +7,8 @@ import AppLayout from './layouts/AppLayout.vue'
 import Login from './pages/Login.vue'
 import Dashboard from './pages/Dashboard.vue'
 import Mission from './pages/Mission.vue'
+import MissionShow from './pages/MissionShow.vue'
 import Validation from './pages/Validation.vue'
-import PayerAvance from './pages/PayerAvance.vue'
 import SuiviAccp from './pages/SuiviAccp.vue'
 
 // ✅ normalisation robuste
@@ -47,28 +47,36 @@ const routes = [
     meta: { requiresAuth: true },
     children: [
       { path: 'dashboard', name: 'dashboard', component: Dashboard },
+
       { path: 'missions', name: 'missions', component: Mission },
+      { path: 'missions/:id', name: 'missions.show', component: MissionShow },
 
       {
         path: 'validation',
         name: 'validation',
         component: Validation,
-        meta: { requiresValidator: true },
+        meta: { requiresValidator: true }, // workflow uniquement
       },
 
-      // ✅ paiement ACCP (page existante)
-      {
-        path: 'missions/:id/payer',
-        name: 'missions.payer',
-        component: PayerAvance,
-        meta: { requiresAccp: true },
-      },
-
-      // ✅ nouveau : suivi ACCP (PJ + clôture + raccourci payer)
+      // ✅ Central financier
       {
         path: 'accp',
         name: 'accp',
         component: SuiviAccp,
+        meta: { requiresAccp: true },
+      },
+      {
+        path: 'accp/:id',
+        name: 'accp.mission',
+        component: SuiviAccp,
+        meta: { requiresAccp: true },
+      },
+
+      // compat ancien lien
+      {
+        path: 'missions/:id/payer',
+        name: 'missions.payer',
+        redirect: to => ({ name: 'accp.mission', params: { id: to.params.id } }),
         meta: { requiresAccp: true },
       },
 
@@ -97,16 +105,20 @@ router.beforeEach(async (to) => {
 
   if (to.name === 'login' && auth.isAuthenticated) return { name: 'dashboard' }
 
+  // ✅ Validation = CH/RAF/CP/Admin (on exclut ACCP)
   const needsValidator = to.matched.some(r => r.meta.requiresValidator)
   if (needsValidator) {
-    const ok = hasRole(auth.user,
+    const ok = hasRole(
+      auth.user,
       'administrateur', 'admin',
-      'chef_hierarchique', 'raf',
-      'coordonnateur_de_projet', 'accp'
+      'chef_hierarchique',
+      'raf',
+      'coordonnateur_de_projet'
     )
     if (!ok) return { name: 'dashboard' }
   }
 
+  // ✅ ACCP central
   const needsAccp = to.matched.some(r => r.meta.requiresAccp)
   if (needsAccp) {
     const ok = hasRole(auth.user, 'accp', 'admin', 'administrateur')

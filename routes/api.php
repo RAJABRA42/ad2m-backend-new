@@ -6,6 +6,9 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\MissionController;
 use App\Http\Controllers\WorkflowController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\AvanceController;
+
+
 
 use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
 
@@ -31,5 +34,10 @@ Route::middleware([EnsureFrontendRequestsAreStateful::class, 'auth:sanctum'])->g
         Route::post('/cloturer', [WorkflowController::class, 'cloturer']);
         Route::post('/rejeter', [WorkflowController::class, 'rejeter']);
     });
+     Route::prefix('missions/{mission}')->group(function () {
+        Route::get('/avances', [AvanceController::class, 'index']);
+        Route::post('/avances', [AvanceController::class, 'store']);
+    });
+    Route::post('/missions/{mission}/regulariser-pj', [WorkflowController::class, 'regulariserPJ']);
 
 });

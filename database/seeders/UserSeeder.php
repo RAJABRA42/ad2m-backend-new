@@ -5,49 +5,40 @@ namespace Database\Seeders;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 
 class UserSeeder extends Seeder
 {
-    /**
-     * Exécute les seeds pour la base de données.
-     * Crée tous les utilisateurs de test et leur attribue un ou plusieurs rôles via la table pivot.
-     */
-    public function run(): void
+    private function upsertUser(array $data, array $roleNames = []): User
     {
-        // Noms des rôles à rechercher pour l'attribution
-        $roleNames = [
-            'administrateur',
-            'chef_hierarchique',
-            'raf',
-            'coordonnateur_de_projet',
-            'accp',
-            'missionnaire',
-        ];
+        $user = User::updateOrCreate(
+            ['email' => $data['email']],
+            [
+                'matricule' => $data['matricule'],
+                'nom' => $data['nom'],
+                'name' => $data['name'],
+                'telephone' => $data['telephone'] ?? null,
+                'unite' => $data['unite'] ?? null,
+                'poste' => $data['poste'] ?? null,
+                'chef_hierarchique_id' => $data['chef_hierarchique_id'] ?? null,
+                'status' => $data['status'] ?? 'active',
+                'password' => Hash::make($data['password'] ?? 'password'),
+            ]
+        );
 
-        // 1. Trouver les IDs des rôles
-        try {
-            // Récupère les IDs des rôles et les stocke dans un tableau associatif [ 'name' => id ]
-            $roleIds = Role::whereIn('name', $roleNames)->pluck('id', 'name')->toArray();
-
-            // Vérifier si tous les rôles critiques sont présents
-            if (count($roleIds) !== count($roleNames)) {
-                 Log::error("Erreur critique : Certains rôles de validation sont manquants dans la table 'roles'.");
-                 return;
-            }
-
-        } catch (\Exception $e) {
-            Log::error("Erreur lors de la récupération des rôles : " . $e->getMessage());
-            return;
+        if (!empty($roleNames)) {
+            $roleIds = Role::whereIn('name', $roleNames)->pluck('id')->toArray();
+            // ✅ évite doublons en pivot
+            $user->roles()->sync($roleIds);
         }
 
-        // --- 2. Création des Utilisateurs et Hiérarchie (Utilisation de roles()->attach()) ---
+        return $user;
+    }
 
-        // A. Créer l'ADMINISTRATEUR (Niveau 0 - Top de la hiérarchie)
-        $adminUser = User::create([
+    public function run(): void
+    {
+        // --- utilisateurs "noyau"
+        $admin = $this->upsertUser([
             'matricule' => 'AD2M001',
             'nom' => 'Administrateur',
             'name' => 'Admin AD2M',
@@ -55,38 +46,23 @@ class UserSeeder extends Seeder
             'telephone' => '123456789',
             'unite' => 'Direction',
             'poste' => 'Administrateur Système',
-            'status' => 'active',
-            'password' => Hash::make('password'),
+            'password' => 'password',
             'chef_hierarchique_id' => null,
-            // 'role_id' n'est plus utilisé ici
-        ]);
-        // ATTRIBUTION VIA LA TABLE PIVOT
-        $adminUser->roles()->attach($roleIds['administrateur']);
-        Log::info("Utilisateur Administrateur créé.");
+        ], ['administrateur']);
 
-
-        // B. Créer les Valideurs N-1 (Rapportent à l'Admin)
-
-        // B1. CHEF HIÉRARCHIQUE (CH)
-        $chefHierarchique = User::create([
+        $ch = $this->upsertUser([
             'matricule' => 'CH001',
             'nom' => 'Chef',
             'name' => 'Chef Hiérarchique',
             'email' => 'ch@example.com',
             'telephone' => '22222222',
             'unite' => 'Opérations',
-            'poste' => 'Chef d\'Unité',
-            'status' => 'active',
-            'password' => Hash::make('password'),
-            'chef_hierarchique_id' => $adminUser->id,
-        ]);
-        // ATTRIBUTION VIA LA TABLE PIVOT
-        $chefHierarchique->roles()->attach($roleIds['chef_hierarchique']);
-        Log::info("Utilisateur Chef Hiérarchique créé.");
+            'poste' => "Chef d'Unité",
+            'password' => 'password',
+            'chef_hierarchique_id' => $admin->id,
+        ], ['chef_hierarchique']);
 
-
-        // B2. RAF (Responsable Administratif et Financier)
-        $raf = User::create([
+        $raf = $this->upsertUser([
             'matricule' => 'R001',
             'nom' => 'Responsable',
             'name' => 'RAF Finance',
@@ -94,17 +70,11 @@ class UserSeeder extends Seeder
             'telephone' => '33333333',
             'unite' => 'Finance',
             'poste' => 'Responsable Administratif',
-            'status' => 'active',
-            'password' => Hash::make('password'),
-            'chef_hierarchique_id' => $adminUser->id,
-        ]);
-        // ATTRIBUTION VIA LA TABLE PIVOT
-        $raf->roles()->attach($roleIds['raf']);
-        Log::info("Utilisateur RAF créé.");
+            'password' => 'password',
+            'chef_hierarchique_id' => $admin->id,
+        ], ['raf']);
 
-
-        // B3. CP (Chef de Projet)
-        $cp = User::create([
+        $cp = $this->upsertUser([
             'matricule' => 'CP001',
             'nom' => 'Coordonnateur',
             'name' => 'Chef de Projet Alpha',
@@ -112,17 +82,11 @@ class UserSeeder extends Seeder
             'telephone' => '44444444',
             'unite' => 'Projet A',
             'poste' => 'Coordonnateur de Projet',
-            'status' => 'active',
-            'password' => Hash::make('password'),
-            'chef_hierarchique_id' => $adminUser->id,
-        ]);
-        // ATTRIBUTION VIA LA TABLE PIVOT
-        $cp->roles()->attach($roleIds['coordonnateur_de_projet']);
-        Log::info("Utilisateur Chef de Projet créé.");
+            'password' => 'password',
+            'chef_hierarchique_id' => $admin->id,
+        ], ['coordonnateur_de_projet']);
 
-
-        // C. Créer l'ACCP (Rapporte au RAF)
-        $accp = User::create([
+        $accp = $this->upsertUser([
             'matricule' => 'AC001',
             'nom' => 'Agent',
             'name' => 'ACCP Avances/Paiements',
@@ -130,17 +94,12 @@ class UserSeeder extends Seeder
             'telephone' => '66666666',
             'unite' => 'Comptabilité',
             'poste' => 'Agent Comptable',
-            'status' => 'active',
-            'password' => Hash::make('password'),
+            'password' => 'password',
             'chef_hierarchique_id' => $raf->id,
-        ]);
-        // ATTRIBUTION VIA LA TABLE PIVOT
-        $accp->roles()->attach($roleIds['accp']);
-        Log::info("Utilisateur ACCP créé.");
+        ], ['accp']);
 
-
-        // D. Créer le Demandeur/Missionnaire (Rapporte au CH)
-        $missionnaire = User::create([
+        // --- missionnaire "principal" (tu l'utilises déjà)
+        $this->upsertUser([
             'matricule' => 'M001',
             'nom' => 'Missionnaire',
             'name' => 'Demandeur de Mission Alpha',
@@ -148,12 +107,40 @@ class UserSeeder extends Seeder
             'telephone' => '55555555',
             'unite' => 'Opérations',
             'poste' => 'Technicien',
-            'status' => 'active',
-            'password' => Hash::make('password'),
-            'chef_hierarchique_id' => $chefHierarchique->id,
-        ]);
-        // ATTRIBUTION VIA LA TABLE PIVOT
-        $missionnaire->roles()->attach($roleIds['missionnaire']);
-        Log::info("Utilisateur Missionnaire (user@example.com) créé.");
+            'password' => 'password',
+            'chef_hierarchique_id' => $ch->id,
+        ], ['missionnaire']);
+
+        // ✅ Ajouter 20 missionnaires simples (M002..M021)
+        for ($i = 2; $i <= 21; $i++) {
+            $num = str_pad((string)$i, 3, '0', STR_PAD_LEFT);
+            $this->upsertUser([
+                'matricule' => "M{$num}",
+                'nom' => "Missionnaire {$num}",
+                'name' => "User Mission {$num}",
+                'email' => "mission{$num}@example.com",
+                'telephone' => "03400{$num}{$num}",
+                'unite' => ($i % 2 === 0) ? 'Opérations' : 'Projet A',
+                'poste' => 'Agent terrain',
+                'password' => 'password',
+                'chef_hierarchique_id' => $ch->id,
+            ], ['missionnaire']);
+        }
+
+        // ✅ Ajouter 3 assistants admin (A001..A003)
+        for ($i = 1; $i <= 3; $i++) {
+            $num = str_pad((string)$i, 3, '0', STR_PAD_LEFT);
+            $this->upsertUser([
+                'matricule' => "A{$num}",
+                'nom' => "Assistant {$num}",
+                'name' => "Assistant Admin {$num}",
+                'email' => "assistant{$num}@example.com",
+                'telephone' => "03299{$num}{$num}",
+                'unite' => 'Administration',
+                'poste' => 'Assistant',
+                'password' => 'password',
+                'chef_hierarchique_id' => $admin->id,
+            ], ['assistant_administratif']);
+        }
     }
 }

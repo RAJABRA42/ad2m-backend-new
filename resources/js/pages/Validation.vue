@@ -149,6 +149,13 @@ const actionLabel = computed(() => {
 
 const doValidate = async (m) => {
   if (!m?.id) return
+
+  // ✅ Si c'est l'étape ACCP (valide_cp), on ne POST PAS /payer ici
+  if (String(activeKey.value || '').toLowerCase() === 'valide_cp') {
+    router.push({ name: 'missions.payer', params: { id: m.id } })
+    return
+  }
+
   const ep = endpointForValidate.value
   if (!ep) return
 

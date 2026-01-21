@@ -92,20 +92,49 @@ class WorkflowController extends Controller
     /**
      * VALIDE CP → AVANCE PAYÉE
      */
-    public function payer(Request $request, Mission $mission)
-    {
-        if (!$request->user()->hasRole(['accp','admin','administrateur'])) {
-            return response()->json(['message' => 'Rôle ACCP requis'], 403);
-        }
-
-        if ($mission->statut_actuel !== 'valide_cp') {
-            return response()->json(['message' => 'Statut invalide'], 422);
-        }
-
-        $mission->update(['statut_actuel' => 'avance_payee']);
-
-        return response()->json(['message' => 'Avance payée']);
+    /**
+ * VALIDE CP → AVANCE PAYÉE (uniquement si une avance "paiement" existe)
+ */
+public function payer(Request $request, Mission $mission)
+{
+    if (!$request->user()->hasRole(['accp','admin','administrateur'])) {
+        return response()->json(['message' => 'Rôle ACCP requis'], 403);
     }
+
+    if ($mission->statut_actuel !== 'valide_cp') {
+        return response()->json(['message' => 'Statut invalide'], 422);
+    }
+
+    // ✅ on exige l'avance enregistrée avant de payer
+    $data = $request->validate([
+        'avance_id' => ['required', 'integer'],
+    ]);
+
+    // ✅ vérifier que l'avance existe et appartient à cette mission
+    $avance = $mission->avances()
+        ->where('id', $data['avance_id'])
+        ->where('type_operation', 'paiement')
+        ->first();
+
+    if (!$avance) {
+        return response()->json([
+            'message' => "Impossible de payer : aucune avance 'paiement' valide n'est enregistrée pour cette mission."
+        ], 422);
+    }
+
+    // (Optionnel) empêcher double paiement
+    if ($mission->statut_actuel === 'avance_payee') {
+        return response()->json(['message' => 'Déjà payée'], 422);
+    }
+
+    $mission->update(['statut_actuel' => 'avance_payee']);
+
+    return response()->json([
+        'message' => 'Paiement confirmé',
+        'mission' => $mission->fresh(),
+        'avance' => $avance,
+    ]);
+}
 
     /**
      * AVANCE PAYÉE → EN COURS
@@ -137,6 +166,11 @@ class WorkflowController extends Controller
         if ($mission->statut_actuel !== 'en_cours') {
             return response()->json(['message' => 'Statut invalide'], 422);
         }
+        if (!$mission->pj_regularise) {
+        return response()->json([
+         'message' => "Impossible de clôturer : PJ non régularisées."
+        ], 422);
+        }
 
         $mission->update([
             'statut_actuel' => 'cloturee',
@@ -164,3 +198,35 @@ class WorkflowController extends Controller
         return response()->json(['message' => 'Mission rejetée']);
     }
 }
+
+/**
+ * Marquer PJ régularisées (ACCP)
+ * Peut être fait quand la mission est en cours (ou avance_payee, selon ta logique).
+ */
+public function regulariserPJ(Request $request, Mission $mission)
+{
+    if (!$request->user()->hasRole(['accp','admin','administrateur'])) {
+        return response()->json(['message' => 'Rôle ACCP requis'], 403);
+    }
+
+    // ✅ choix logique : PJ régularisées quand mission est en cours (revenue)
+    if (!in_array($mission->statut_actuel, ['en_cours', 'avance_payee'])) {
+        return response()->json(['message' => 'Statut invalide pour régulariser'], 422);
+    }
+
+    $data = $request->validate([
+        'note_regularisation' => ['nullable', 'string'],
+    ]);
+
+    $mission->update([
+        'pj_regularise' => true,
+        'date_pj_regularise' => now(),
+        'note_regularisation' => $data['note_regularisation'] ?? null,
+    ]);
+
+    return response()->json([
+        'message' => 'PJ marquées comme régularisées',
+        'mission' => $mission->fresh(),
+    ]);
+}
+

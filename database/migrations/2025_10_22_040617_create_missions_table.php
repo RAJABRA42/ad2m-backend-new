@@ -35,21 +35,30 @@ return new class extends Migration
             $table->decimal('reliquat_a_rembourser', 10, 2)->nullable();
 
            $table->enum('statut_actuel', [
- 'brouillon',
- 'en_attente_ch',
- 'valide_ch',
- 'valide_raf',
- 'valide_cp',
- 'avance_payee',
- 'en_cours',
- 'cloturee'
-])->default('brouillon');
-
-$table->timestamp('date_cloture')->nullable();
+                'brouillon',
+                'en_attente_ch',
+                'valide_ch',
+                'valide_raf',
+                'valide_cp',
+                'avance_payee',
+                'en_cours',
+                'cloturee'
+                ])->default('brouillon');
 
 
-            $table->dateTime('date_echeance_audit')->nullable();
-            $table->dateTime('date_regularisation')->nullable();
+              $table->boolean('pj_regularise')->default(false);
+
+            // ✅ quand ACCP a marqué la régularisation
+            $table->dateTime('date_pj_regularise')->nullable();
+
+            // ✅ note libre (ex: "PJ OK", "Manque facture hôtel", etc.)
+            $table->text('note_regularisation')->nullable();
+            
+
+
+            // $table->timestamp('date_cloture')->nullable();
+            // $table->dateTime('date_echeance_audit')->nullable();
+            // $table->dateTime('date_regularisation')->nullable();
 
             $table->timestamps();
         });

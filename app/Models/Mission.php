@@ -22,6 +22,9 @@ class Mission extends Model
         'montant_avance_demande', 'montant_total_justifie', 'reliquat_a_rembourser',
         // Audit et Statut
         'statut_actuel', 'date_echeance_audit', 'date_regularisation','date_cloture',
+        'pj_regularise',
+        'date_pj_regularise',
+        'note_regularisation',
     ];
 
     protected $casts = [
@@ -31,6 +34,9 @@ class Mission extends Model
         'date_regularisation' => 'datetime',
         'date_cloture' => 'datetime',
         'date_cloture' => 'datetime',
+
+        'pj_regularise' => 'boolean',
+        'date_pj_regularise' => 'datetime',
     ];
 
     // --- RELATIONS ACTEURS / VALIDATEURS (BelongsTo) ---

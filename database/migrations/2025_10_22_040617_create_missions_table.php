@@ -48,11 +48,11 @@ return new class extends Migration
 
               $table->boolean('pj_regularise')->default(false);
 
-            // ✅ quand ACCP a marqué la régularisation
+            // // ✅ quand ACCP a marqué la régularisation
             $table->dateTime('date_pj_regularise')->nullable();
 
-            // ✅ note libre (ex: "PJ OK", "Manque facture hôtel", etc.)
-            $table->text('note_regularisation')->nullable();
+            // // ✅ note libre (ex: "PJ OK", "Manque facture hôtel", etc.)
+             $table->text('note_regularisation')->nullable();
             
 
 

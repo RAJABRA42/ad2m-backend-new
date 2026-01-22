@@ -10,6 +10,8 @@ import Mission from './pages/Mission.vue'
 import MissionShow from './pages/MissionShow.vue'
 import Validation from './pages/Validation.vue'
 import SuiviAccp from './pages/SuiviAccp.vue'
+import MissionCreate from './pages/MissionCreate.vue'
+
 
 // ✅ normalisation robuste
 const normRole = (v) =>
@@ -50,6 +52,9 @@ const routes = [
 
       { path: 'missions', name: 'missions', component: Mission },
       { path: 'missions/:id', name: 'missions.show', component: MissionShow },
+
+      { path: 'missions/create', name: 'missions.create', component: MissionCreate },
+
 
       {
         path: 'validation',

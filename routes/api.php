@@ -10,6 +10,8 @@ use App\Http\Controllers\AvanceController;
 
 
 
+
+
 use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
 
 Route::middleware([EnsureFrontendRequestsAreStateful::class, 'auth:sanctum'])->group(function () {

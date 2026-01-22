@@ -103,8 +103,8 @@ const goEdit = (m) => router.push({ name: 'missions.edit', params: { id: m.id } 
 // --- actions
 const submitMission = async (m) => {
   if (!m?.id) return
-  if (!confirm('Soumettre cette mission ?')) return
 
+  // ✅ correction: plus de confirm() => plus de boîte de dialogue navigateur
   actionBusyId.value = m.id
   try {
     await window.axios.post(`/api/missions/${m.id}/soumettre`)
@@ -118,8 +118,8 @@ const submitMission = async (m) => {
 
 const startMission = async (m) => {
   if (!m?.id) return
-  if (!confirm('Commencer cette mission ? (statut → EN COURS)')) return
 
+  // ✅ correction: plus de confirm() => plus de boîte de dialogue navigateur
   actionBusyId.value = m.id
   try {
     await window.axios.post(`/api/missions/${m.id}/commencer`)
@@ -133,6 +133,7 @@ const startMission = async (m) => {
 
 const deleteMission = async (m) => {
   if (!m?.id) return
+  // (On garde la confirmation pour la suppression)
   if (!confirm('Supprimer cette mission ?')) return
 
   actionBusyId.value = m.id

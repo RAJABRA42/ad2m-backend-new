@@ -15,13 +15,30 @@ class Mission extends Model
 {
     protected $fillable = [
         // Champs d'acteurs
-        'demandeur_id', 'validation_ch_id', 'validation_raf_id', 'validation_cp_id',
+        'demandeur_id',
+        'chef_hierarchique_id',   
+        'validation_ch_id',
+        'validation_raf_id',
+        'validation_cp_id',
+
         // Informations
-        'objet', 'destination', 'moyen_deplacement', 'date_debut', 'date_fin','motif',
+        'objet',
+        'destination',
+        'moyen_deplacement',
+        'date_debut',
+        'date_fin',
+        'motif',
+
         // Suivi Financier
-        'montant_avance_demande', 'montant_total_justifie', 'reliquat_a_rembourser',
+        'montant_avance_demande',
+        'montant_total_justifie',
+        'reliquat_a_rembourser',
+
         // Audit et Statut
-        'statut_actuel', 'date_echeance_audit', 'date_regularisation','date_cloture',
+        'statut_actuel',
+        'date_echeance_audit',
+        'date_regularisation',
+        'date_cloture',
         'pj_regularise',
         'date_pj_regularise',
         'note_regularisation',
@@ -30,9 +47,9 @@ class Mission extends Model
     protected $casts = [
         'date_debut' => 'date',
         'date_fin' => 'date',
+
         'date_echeance_audit' => 'datetime',
         'date_regularisation' => 'datetime',
-        'date_cloture' => 'datetime',
         'date_cloture' => 'datetime',
 
         'pj_regularise' => 'boolean',
@@ -46,6 +63,17 @@ class Mission extends Model
         return $this->belongsTo(User::class, 'demandeur_id');
     }
 
+    /**
+     * Chef hiérarchique assigné à la mission (workflow)
+     */
+    public function chefHierarchique(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'chef_hierarchique_id');
+    }
+
+    /**
+     * Chef hiérarchique ayant effectivement validé
+     */
     public function validateurCH(): BelongsTo
     {
         return $this->belongsTo(User::class, 'validation_ch_id');

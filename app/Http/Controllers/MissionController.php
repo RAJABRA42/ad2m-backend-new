@@ -14,6 +14,7 @@ class MissionController extends Controller
      * LISTE DES MISSIONS
      * - Décideurs : toutes
      * - Missionnaire : ses missions
+     * ✅ Correction : un CH ne voit que les missions qui lui sont assignées (inbox)
      */
     public function index(Request $request)
     {
@@ -29,9 +30,17 @@ class MissionController extends Controller
             'chef_hierarchique',
             'coordonnateur_de_projet'
         ]);
-        $mine = $request->boolean('mine');
 
-      if ($mine || !$isDecisionMaker) {
+        $mine = $request->boolean('mine');
+        $isAdmin = $user->hasRole(['admin', 'administrateur']);
+
+        // ✅ FIX MINIMAL : CH voit seulement les missions soumises à lui (sauf si mine=true)
+        if ($user->hasRole('chef_hierarchique') && !$isAdmin && !$mine) {
+            $query->where('statut_actuel', 'en_attente_ch')
+                  ->where('chef_hierarchique_id', $user->id);
+        }
+        // comportement existant : mes missions si mine=true ou si non-décideur
+        elseif ($mine || !$isDecisionMaker) {
             $query->where('demandeur_id', $user->id);
         }
 
@@ -44,25 +53,37 @@ class MissionController extends Controller
 
     /**
      * DETAILS D'UNE MISSION
+     * ✅ Correction : CH ne peut ouvrir que ses missions (demandeur) ou celles assignées à lui
      */
     public function show(Request $request, Mission $mission)
-{
-    $user = $request->user();
+    {
+        $user = $request->user()->load('roles');
 
-    // missionnaire ne voit que ses missions
-    if ($user->hasRole(['missionnaire']) && $mission->demandeur_id !== $user->id) {
-        return response()->json(['message' => 'Accès refusé'], 403);
+        // missionnaire ne voit que ses missions
+        if ($user->hasRole(['missionnaire']) && (int)$mission->demandeur_id !== (int)$user->id) {
+            return response()->json(['message' => 'Accès refusé'], 403);
+        }
+
+        // ✅ FIX : CH (non admin) ne voit pas les missions d'autres CH (même via URL)
+        $isAdmin = $user->hasRole(['admin', 'administrateur']);
+        if ($user->hasRole('chef_hierarchique') && !$isAdmin) {
+            $isOwner = (int)$mission->demandeur_id === (int)$user->id;
+            $isAssigned = (int)$mission->chef_hierarchique_id === (int)$user->id;
+
+            if (!$isOwner && !$isAssigned) {
+                return response()->json(['message' => 'Introuvable'], 404);
+            }
+        }
+
+        $mission->load([
+            'demandeur',
+            'avances' => function ($q) {
+                $q->orderByDesc('date_operation')->with('executedBy');
+            },
+        ]);
+
+        return response()->json(['mission' => $mission]);
     }
-
-    $mission->load([
-        'demandeur',
-        'avances' => function ($q) {
-            $q->orderByDesc('date_operation')->with('executedBy');
-        },
-    ]);
-
-    return response()->json(['mission' => $mission]);
-}
 
     /**
      * CREER UNE MISSION (BROUILLON)
@@ -70,18 +91,17 @@ class MissionController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-    'objet' => 'required|string|max:255',
-    'destination' => 'required|string|max:255',
-    'motif' => 'nullable|string',
-    'moyen_deplacement' => 'nullable|string|max:100',
-    'date_debut' => 'nullable|date',
-    'date_fin' => 'nullable|date|after_or_equal:date_debut',
-    'montant_avance_demande' => 'nullable|numeric|min:0',
-]);
+            'objet' => 'required|string|max:255',
+            'destination' => 'required|string|max:255',
+            'motif' => 'nullable|string',
+            'moyen_deplacement' => 'nullable|string|max:100',
+            'date_debut' => 'nullable|date',
+            'date_fin' => 'nullable|date|after_or_equal:date_debut',
+            'montant_avance_demande' => 'nullable|numeric|min:0',
+        ]);
 
-$data['demandeur_id'] = Auth::id();
-$data['statut_actuel'] = 'brouillon';
-
+        $data['demandeur_id'] = Auth::id();
+        $data['statut_actuel'] = 'brouillon';
 
         try {
             $mission = Mission::create($data);
@@ -105,20 +125,20 @@ $data['statut_actuel'] = 'brouillon';
 
         if (
             !$user->hasRole(['admin','administrateur']) &&
-            ($mission->demandeur_id !== $user->id || $mission->statut_actuel !== 'brouillon')
+            ((int)$mission->demandeur_id !== (int)$user->id || $mission->statut_actuel !== 'brouillon')
         ) {
             return response()->json(['message' => 'Modification interdite'], 403);
         }
 
         $data = $request->validate([
-    'objet' => 'sometimes|required|string|max:255',
-    'destination' => 'sometimes|required|string|max:255',
-    'motif' => 'nullable|string',
-    'moyen_deplacement' => 'nullable|string|max:100',
-    'date_debut' => 'nullable|date',
-    'date_fin' => 'nullable|date|after_or_equal:date_debut',
-    'montant_avance_demande' => 'nullable|numeric|min:0',
-]);
+            'objet' => 'sometimes|required|string|max:255',
+            'destination' => 'sometimes|required|string|max:255',
+            'motif' => 'nullable|string',
+            'moyen_deplacement' => 'nullable|string|max:100',
+            'date_debut' => 'nullable|date',
+            'date_fin' => 'nullable|date|after_or_equal:date_debut',
+            'montant_avance_demande' => 'nullable|numeric|min:0',
+        ]);
 
         $mission->update($data);
 
@@ -137,7 +157,7 @@ $data['statut_actuel'] = 'brouillon';
 
         $canDelete =
             $user->hasRole(['admin','administrateur']) ||
-            ($mission->demandeur_id === $user->id && $mission->statut_actuel === 'brouillon');
+            ((int)$mission->demandeur_id === (int)$user->id && $mission->statut_actuel === 'brouillon');
 
         if (!$canDelete) {
             return response()->json(['message' => 'Suppression interdite'], 403);

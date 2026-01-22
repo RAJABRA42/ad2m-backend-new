@@ -10,6 +10,7 @@ class WorkflowController extends Controller
 {
     /**
      * BROUILLON → EN ATTENTE CH
+     * ✅ Correction : assigner automatiquement le CH du missionnaire
      */
     public function soumettre(Request $request, Mission $mission)
     {
@@ -17,22 +18,44 @@ class WorkflowController extends Controller
             return response()->json(['message' => 'Statut invalide'], 422);
         }
 
-        if ($mission->demandeur_id !== $request->user()->id) {
+        if ((int)$mission->demandeur_id !== (int)$request->user()->id) {
             return response()->json(['message' => 'Accès refusé'], 403);
         }
 
-        $mission->update(['statut_actuel' => 'en_attente_ch']);
+        $chefId = $request->user()->chef_hierarchique_id;
+
+        if (!$chefId) {
+            return response()->json([
+                'message' => "Impossible de soumettre : aucun chef hiérarchique n'est assigné à votre profil."
+            ], 422);
+        }
+
+        $mission->update([
+            'statut_actuel' => 'en_attente_ch',
+            'chef_hierarchique_id' => $chefId,
+        ]);
 
         return response()->json(['message' => 'Mission soumise']);
     }
 
     /**
      * EN ATTENTE CH → VALIDE CH
+     * ✅ Correction : seul le CH assigné peut valider (sinon 404)
      */
     public function validerCH(Request $request, Mission $mission)
     {
-        if (!$request->user()->hasRole(['chef_hierarchique','admin','administrateur'])) {
+        $user = $request->user()->load('roles');
+
+        if (!$user->hasRole(['chef_hierarchique','admin','administrateur'])) {
             return response()->json(['message' => 'Rôle CH requis'], 403);
+        }
+
+        $isAdmin = $user->hasRole(['admin','administrateur']);
+
+        if ($user->hasRole('chef_hierarchique') && !$isAdmin) {
+            if ((int)$mission->chef_hierarchique_id !== (int)$user->id) {
+                return response()->json(['message' => 'Introuvable'], 404);
+            }
         }
 
         if ($mission->statut_actuel !== 'en_attente_ch') {
@@ -41,7 +64,7 @@ class WorkflowController extends Controller
 
         $mission->update([
             'statut_actuel' => 'valide_ch',
-            'validation_ch_id' => $request->user()->id,
+            'validation_ch_id' => $user->id,
         ]);
 
         return response()->json(['message' => 'Validée CH']);
@@ -127,7 +150,7 @@ class WorkflowController extends Controller
             return response()->json(['message' => 'Statut invalide'], 422);
         }
 
-        if ($mission->demandeur_id !== $request->user()->id) {
+        if ((int)$mission->demandeur_id !== (int)$request->user()->id) {
             return response()->json(['message' => 'Accès refusé'], 403);
         }
 
@@ -194,15 +217,26 @@ class WorkflowController extends Controller
 
     /**
      * REJET → RETOUR BROUILLON
+     * ✅ Correction : si CH, il ne peut rejeter que ses missions assignées
      */
     public function rejeter(Request $request, Mission $mission)
     {
+        $user = $request->user()->load('roles');
+
         if (in_array($mission->statut_actuel, ['avance_payee','en_cours','cloturee'], true)) {
             return response()->json(['message' => 'Mission déjà engagée'], 422);
         }
 
-        if (!$request->user()->hasRole(['chef_hierarchique','raf','coordonnateur_de_projet','admin','administrateur'])) {
+        if (!$user->hasRole(['chef_hierarchique','raf','coordonnateur_de_projet','admin','administrateur'])) {
             return response()->json(['message' => 'Accès refusé'], 403);
+        }
+
+        $isAdmin = $user->hasRole(['admin','administrateur']);
+
+        if ($user->hasRole('chef_hierarchique') && !$isAdmin) {
+            if ((int)$mission->chef_hierarchique_id !== (int)$user->id) {
+                return response()->json(['message' => 'Introuvable'], 404);
+            }
         }
 
         $mission->update(['statut_actuel' => 'brouillon']);

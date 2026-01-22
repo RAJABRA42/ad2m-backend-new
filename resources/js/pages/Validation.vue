@@ -12,6 +12,13 @@ const error = ref('')
 const actionMsg = ref('')
 const q = ref('')
 
+// éviter double-clic
+const busyId = ref(null)
+
+// modal rejet (custom)
+const rejectOpen = ref(false)
+const rejectTarget = ref(null)
+
 // ---------- ROLES ----------
 const roleNames = computed(() => {
   const roles = auth.user?.roles ?? []
@@ -26,18 +33,10 @@ const hasRole = (...names) => {
   return names.some(n => set.has(String(n).toLowerCase()))
 }
 
-const isAdmin = computed(() =>
-  hasRole('admin', 'administrateur')
-)
+const isAdmin = computed(() => hasRole('admin', 'administrateur'))
 
 const isValidator = computed(() =>
-  hasRole(
-    'administrateur',
-    'admin',
-    'chef_hierarchique',
-    'raf',
-    'coordonnateur_de_projet'
-  )
+  hasRole('administrateur', 'admin', 'chef_hierarchique', 'raf', 'coordonnateur_de_projet')
 )
 
 // ---------- FILE À TRAITER SELON RÔLE ----------
@@ -51,14 +50,9 @@ const rolePendingKey = computed(() => {
 
 // Admin peut changer la file
 const selectedKey = ref(null)
+onMounted(() => (selectedKey.value = rolePendingKey.value))
 
-onMounted(() => {
-  selectedKey.value = rolePendingKey.value
-})
-
-const activeKey = computed(() =>
-  selectedKey.value || rolePendingKey.value
-)
+const activeKey = computed(() => selectedKey.value || rolePendingKey.value)
 
 // ---------- LABELS ----------
 const stageLabel = (k) => {
@@ -66,10 +60,12 @@ const stageLabel = (k) => {
     en_attente_ch: 'En attente Chef Hiérarchique',
     valide_ch: 'En attente RAF',
     valide_raf: 'En attente Chef de Projet',
-    valide_cp: 'Transmise à la comptabilité (ACCP)',
+    valide_cp: 'Transmises à l’ACCP',
   }
   return map[k] ?? k
 }
+
+const norm = (v) => String(v ?? '').toLowerCase().trim()
 
 const prettyStatus = (s) => {
   const map = {
@@ -82,14 +78,15 @@ const prettyStatus = (s) => {
     en_cours: 'En cours',
     cloturee: 'Clôturée',
   }
-  return map[String(s || '').toLowerCase()] ?? s
+  return map[norm(s)] ?? s
 }
 
 const badgeClass = (s) => {
-  const k = String(s || '').toLowerCase()
+  const k = norm(s)
   if (k === 'en_attente_ch') return 'bg-blue-100 text-blue-700'
   if (k === 'valide_ch' || k === 'valide_raf') return 'bg-amber-100 text-amber-700'
   if (k === 'valide_cp') return 'bg-indigo-100 text-indigo-700'
+  if (k === 'brouillon') return 'bg-slate-100 text-slate-700'
   return 'bg-slate-100 text-slate-700'
 }
 
@@ -97,6 +94,7 @@ const badgeClass = (s) => {
 const load = async () => {
   loading.value = true
   error.value = ''
+  actionMsg.value = ''
   try {
     const res = await window.axios.get('/api/missions')
     missions.value = res.data?.missions ?? res.data ?? []
@@ -107,19 +105,15 @@ const load = async () => {
     loading.value = false
   }
 }
-
 onMounted(load)
 
-// ---------- FILTRAGE ----------
+// ---------- FILTRAGE FILE "A TRAITER" ----------
 const filtered = computed(() => {
   if (!isValidator.value || !activeKey.value) return []
+  const key = norm(activeKey.value)
+  const query = norm(q.value)
 
-  const key = String(activeKey.value).toLowerCase()
-  const query = q.value.trim().toLowerCase()
-
-  let arr = missions.value.filter(
-    m => String(m?.statut_actuel).toLowerCase() === key
-  )
+  let arr = missions.value.filter(m => norm(m?.statut_actuel) === key)
 
   if (query) {
     arr = arr.filter(m => {
@@ -130,15 +124,62 @@ const filtered = computed(() => {
         m?.demandeur?.name,
         m?.demandeur?.matricule,
         prettyStatus(m?.statut_actuel),
-      ].join(' ').toLowerCase()
+      ].filter(Boolean).join(' ').toLowerCase()
       return blob.includes(query)
     })
   }
 
-  return arr.sort((a, b) => b.id - a.id)
+  return arr.sort((a, b) => (b.id ?? 0) - (a.id ?? 0))
 })
 
-// ---------- ENDPOINT DE VALIDATION ----------
+// ---------- HISTORIQUE (MES VALIDATIONS) ----------
+const historyTitle = computed(() => {
+  if (isAdmin.value) return 'Historique (validations système)'
+  if (hasRole('chef_hierarchique')) return 'Historique (mes validations CH)'
+  if (hasRole('raf')) return 'Historique (mes validations RAF)'
+  if (hasRole('coordonnateur_de_projet')) return 'Historique (mes validations CP)'
+  return 'Historique'
+})
+
+const history = computed(() => {
+  if (!isValidator.value) return []
+  const uid = Number(auth.user?.id || 0)
+  const query = norm(q.value)
+
+  let arr = missions.value
+
+  if (!isAdmin.value) {
+    if (hasRole('chef_hierarchique')) arr = arr.filter(m => Number(m?.validation_ch_id) === uid)
+    else if (hasRole('raf')) arr = arr.filter(m => Number(m?.validation_raf_id) === uid)
+    else if (hasRole('coordonnateur_de_projet')) arr = arr.filter(m => Number(m?.validation_cp_id) === uid)
+    else arr = []
+  } else {
+    // admin : tout ce qui a déjà une validation
+    arr = arr.filter(m => m?.validation_ch_id || m?.validation_raf_id || m?.validation_cp_id)
+  }
+
+  if (query) {
+    arr = arr.filter(m => {
+      const blob = [
+        m?.objet,
+        m?.destination,
+        m?.demandeur?.name,
+        prettyStatus(m?.statut_actuel),
+      ].filter(Boolean).join(' ').toLowerCase()
+      return blob.includes(query)
+    })
+  }
+
+  return arr.sort((a, b) => (b.id ?? 0) - (a.id ?? 0)).slice(0, 30)
+})
+
+// ---------- NAV "VOIR" (LECTURE SEULE) ----------
+const goShow = (m) => {
+  if (!m?.id) return
+  router.push({ name: 'missions.show', params: { id: m.id }, query: { mode: 'view' } })
+}
+
+// ---------- ENDPOINT VALIDATION ----------
 const endpointForValidate = computed(() => {
   if (activeKey.value === 'en_attente_ch') return 'valider-ch'
   if (activeKey.value === 'valide_ch') return 'valider-raf'
@@ -146,11 +187,11 @@ const endpointForValidate = computed(() => {
   return null
 })
 
-// ---------- ACTION ----------
+// ---------- ACTIONS ----------
 const doValidate = async (m) => {
   if (!m?.id) return
 
-  // ✅ FIN DU WORKFLOW → ACCP
+  // FIN WORKFLOW → ACCP
   if (String(activeKey.value) === 'valide_cp') {
     router.push({ name: 'accp.mission', params: { id: m.id } })
     return
@@ -159,13 +200,41 @@ const doValidate = async (m) => {
   const endpoint = endpointForValidate.value
   if (!endpoint) return
 
+  busyId.value = m.id
   actionMsg.value = ''
   try {
     await window.axios.post(`/api/missions/${m.id}/${endpoint}`)
-    actionMsg.value = 'Validation effectuée.'
+    actionMsg.value = '✅ Validation effectuée.'
     await load()
   } catch (e) {
     actionMsg.value = e?.response?.data?.message || 'Action refusée.'
+  } finally {
+    busyId.value = null
+  }
+}
+
+// --- REJETER (modal)
+const askReject = (m) => {
+  rejectTarget.value = m
+  rejectOpen.value = true
+}
+
+const doReject = async () => {
+  const m = rejectTarget.value
+  if (!m?.id) return
+
+  busyId.value = m.id
+  actionMsg.value = ''
+  try {
+    await window.axios.post(`/api/missions/${m.id}/rejeter`)
+    actionMsg.value = '✅ Mission rejetée (retour en brouillon).'
+    rejectOpen.value = false
+    rejectTarget.value = null
+    await load()
+  } catch (e) {
+    actionMsg.value = e?.response?.data?.message || 'Rejet refusé.'
+  } finally {
+    busyId.value = null
   }
 }
 </script>
@@ -175,9 +244,7 @@ const doValidate = async (m) => {
     <div class="flex justify-between items-start gap-4">
       <div>
         <h1 class="text-3xl font-extrabold text-slate-900">Validation des missions</h1>
-        <p class="text-slate-600 mt-1">
-          {{ stageLabel(activeKey) }}
-        </p>
+        <p class="text-slate-600 mt-1">{{ stageLabel(activeKey) }}</p>
       </div>
 
       <button
@@ -192,10 +259,7 @@ const doValidate = async (m) => {
     <!-- ADMIN : changer la file -->
     <div v-if="isAdmin" class="bg-white rounded-2xl border p-4">
       <label class="text-sm font-semibold text-slate-700">Étape :</label>
-      <select
-        v-model="selectedKey"
-        class="mt-2 w-full rounded-xl border px-4 py-2"
-      >
+      <select v-model="selectedKey" class="mt-2 w-full rounded-xl border px-4 py-2">
         <option value="en_attente_ch">En attente CH</option>
         <option value="valide_ch">En attente RAF</option>
         <option value="valide_raf">En attente CP</option>
@@ -214,8 +278,10 @@ const doValidate = async (m) => {
       {{ actionMsg }}
     </div>
 
-    <!-- TABLE -->
+    <!-- TABLE A TRAITER -->
     <div class="bg-white rounded-2xl border overflow-hidden">
+      <div class="px-6 py-4 border-b font-bold text-slate-900">À traiter</div>
+
       <div v-if="loading" class="p-6 text-slate-500">Chargement…</div>
       <div v-else-if="filtered.length === 0" class="p-8 text-center text-slate-500">
         Aucune mission à traiter
@@ -228,7 +294,7 @@ const doValidate = async (m) => {
             <th class="px-5 py-3">Destination</th>
             <th class="px-5 py-3">Demandeur</th>
             <th class="px-5 py-3">Statut</th>
-            <th class="px-5 py-3 text-right">Action</th>
+            <th class="px-5 py-3 text-right">Actions</th>
           </tr>
         </thead>
 
@@ -240,30 +306,132 @@ const doValidate = async (m) => {
 
             <td class="px-5 py-4">{{ m.destination }}</td>
 
-            <td class="px-5 py-4">
-              {{ m.demandeur?.name }}
-            </td>
+            <td class="px-5 py-4">{{ m.demandeur?.name }}</td>
 
             <td class="px-5 py-4">
-              <span
-                class="px-3 py-1 rounded-full text-xs font-semibold"
-                :class="badgeClass(m.statut_actuel)"
-              >
+              <span class="px-3 py-1 rounded-full text-xs font-semibold" :class="badgeClass(m.statut_actuel)">
                 {{ prettyStatus(m.statut_actuel) }}
               </span>
             </td>
 
-            <td class="px-5 py-4 text-right">
-              <button
-                class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold"
-                @click="doValidate(m)"
-              >
-                {{ activeKey === 'valide_cp' ? 'Ouvrir ACCP' : 'Valider' }}
-              </button>
+            <td class="px-5 py-4">
+              <div class="flex items-center justify-end gap-2">
+                <!-- 👁 Voir (lecture seule) -->
+                <button
+                  class="w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-700"
+                  title="Voir"
+                  @click="goShow(m)"
+                >
+                  👁
+                </button>
+
+                <!-- Valider/Rejeter (sauf file ACCP) -->
+                <template v-if="activeKey !== 'valide_cp'">
+                  <button
+                    class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold disabled:opacity-60"
+                    :disabled="busyId === m.id"
+                    @click="doValidate(m)"
+                  >
+                    Valider
+                  </button>
+
+                  <button
+                    class="px-4 py-2 rounded-lg border border-rose-300 text-rose-700 text-sm font-semibold hover:bg-rose-50 disabled:opacity-60"
+                    :disabled="busyId === m.id"
+                    @click="askReject(m)"
+                  >
+                    Rejeter
+                  </button>
+                </template>
+
+                <template v-else>
+                  <button
+                    class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-semibold"
+                    @click="doValidate(m)"
+                  >
+                    Ouvrir ACCP
+                  </button>
+                </template>
+              </div>
             </td>
           </tr>
         </tbody>
       </table>
     </div>
+
+    <!-- HISTORIQUE -->
+    <div class="bg-white rounded-2xl border overflow-hidden">
+      <div class="px-6 py-4 border-b flex items-center justify-between">
+        <div class="font-bold text-slate-900">{{ historyTitle }}</div>
+        <div class="text-xs text-slate-500">Basé sur validation_ch_id / validation_raf_id / validation_cp_id</div>
+      </div>
+
+      <div v-if="history.length === 0" class="p-8 text-center text-slate-500">
+        Aucun historique pour l’instant.
+      </div>
+
+      <div v-else class="overflow-x-auto">
+        <table class="min-w-[980px] w-full">
+          <thead class="bg-slate-50 text-xs font-semibold text-slate-500">
+            <tr class="text-left">
+              <th class="px-5 py-3">MISSION</th>
+              <th class="px-5 py-3">DEMANDEUR</th>
+              <th class="px-5 py-3">STATUT ACTUEL</th>
+              <th class="px-5 py-3 text-right">VOIR</th>
+            </tr>
+          </thead>
+
+          <tbody class="divide-y">
+            <tr v-for="m in history" :key="m.id" class="hover:bg-slate-50">
+              <td class="px-5 py-4 font-semibold text-slate-900">
+                {{ m.objet || ('Mission #' + m.id) }}
+              </td>
+              <td class="px-5 py-4 text-slate-700">{{ m.demandeur?.name || '—' }}</td>
+              <td class="px-5 py-4">
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold" :class="badgeClass(m.statut_actuel)">
+                  {{ prettyStatus(m.statut_actuel) }}
+                </span>
+              </td>
+              <td class="px-5 py-4 text-right">
+                <button
+                  class="w-9 h-9 rounded-lg hover:bg-slate-100 inline-flex items-center justify-center text-slate-700"
+                  title="Voir"
+                  @click="goShow(m)"
+                >
+                  👁
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- MODAL REJET -->
+    <div v-if="rejectOpen" class="fixed inset-0 z-50">
+      <div class="absolute inset-0 bg-black/40" @click="rejectOpen = false"></div>
+      <div class="absolute inset-0 flex items-center justify-center p-4">
+        <div class="w-full max-w-md bg-white rounded-2xl shadow-lg border p-6">
+          <div class="text-lg font-bold text-slate-900">Rejeter la mission ?</div>
+          <p class="text-slate-600 mt-2">
+            Cette action renverra la mission en <b>brouillon</b>. Le missionnaire pourra la modifier puis re-soumettre.
+          </p>
+
+          <div class="mt-5 flex justify-end gap-2">
+            <button class="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50" @click="rejectOpen = false">
+              Annuler
+            </button>
+            <button
+              class="px-4 py-2 rounded-xl bg-rose-600 text-white font-semibold hover:opacity-95 disabled:opacity-60"
+              :disabled="busyId === (rejectTarget?.id ?? null)"
+              @click="doReject"
+            >
+              {{ busyId === (rejectTarget?.id ?? null) ? 'Rejet…' : 'Rejeter' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>

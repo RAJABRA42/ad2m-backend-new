@@ -19,6 +19,7 @@ return new class extends Migration
             $table->foreignId('validation_ch_id')->nullable()->constrained('users'); // Chef Hiérarchique
             $table->foreignId('validation_raf_id')->nullable()->constrained('users'); // RAF
             $table->foreignId('validation_cp_id')->nullable()->constrained('users'); // Chef de Projet
+            $table->foreignId('chef_hierarchique_id')->nullable()->constrained('users')->nullOnDelete();
 
             // --- INFORMATIONS DE MISSION ---
             $table->string('objet', 255)->nullable();

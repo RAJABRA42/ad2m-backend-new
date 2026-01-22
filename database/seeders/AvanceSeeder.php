@@ -14,7 +14,7 @@ class AvanceSeeder extends Seeder
         $accp = User::where('email', 'accp@example.com')->first();
         if (!$accp) return;
 
-        $missions = Mission::where('statut_actuel', 'avance_payee')->get();
+        $missions = Mission::whereIn('statut_actuel', ['avance_payee', 'en_cours', 'cloturee'])->get();
 
         foreach ($missions as $m) {
             Avance::updateOrCreate(

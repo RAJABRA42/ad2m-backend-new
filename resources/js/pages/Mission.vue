@@ -14,6 +14,10 @@ const q = ref('')
 // Pour éviter double-clic sur une action
 const actionBusyId = ref(null)
 
+// --- suppression modal custom (pas confirm navigateur)
+const confirmOpen = ref(false)
+const toDelete = ref(null)
+
 // --- helpers
 const norm = (v) => String(v ?? '').toLowerCase().trim()
 
@@ -50,6 +54,7 @@ const isOwner = (m) => {
   return !!uid && Number(m?.demandeur_id) === Number(uid)
 }
 
+const isDraft = (m) => isOwner(m) && norm(m?.statut_actuel) === 'brouillon'
 const canStart = (m) => isOwner(m) && norm(m?.statut_actuel) === 'avance_payee'
 
 // --- load
@@ -58,7 +63,6 @@ const load = async () => {
   error.value = ''
   try {
     const res = await window.axios.get('/api/missions')
-    // selon ton backend: res.data.missions ou res.data direct
     missions.value = res.data?.missions ?? res.data ?? []
   } catch (e) {
     missions.value = []
@@ -76,7 +80,7 @@ const mine = computed(() => {
   let arr = missions.value.filter(isOwner)
 
   if (query) {
-    arr = arr.filter(m => {
+    arr = arr.filter((m) => {
       const blob = [
         m?.objet,
         m?.destination,
@@ -97,14 +101,28 @@ const mine = computed(() => {
 
 // --- navigation
 const goCreate = () => router.push({ name: 'missions.create' })
-const goShow = (m) => router.push({ name: 'missions.show', params: { id: m.id } })
-const goEdit = (m) => router.push({ name: 'missions.edit', params: { id: m.id } })
+
+// 👁 Voir => MissionShow en lecture
+const goShow = (m) =>
+  router.push({
+    name: 'missions.show',
+    params: { id: m.id },
+    query: { mode: 'view' },
+  })
+
+// ✏️ Modifier => MissionShow direct en édition
+const goEdit = (m) =>
+  router.push({
+    name: 'missions.show',
+    params: { id: m.id },
+    query: { mode: 'edit' },
+  })
 
 // --- actions
 const submitMission = async (m) => {
   if (!m?.id) return
+  if (!isDraft(m)) return
 
-  // ✅ correction: plus de confirm() => plus de boîte de dialogue navigateur
   actionBusyId.value = m.id
   try {
     await window.axios.post(`/api/missions/${m.id}/soumettre`)
@@ -119,7 +137,6 @@ const submitMission = async (m) => {
 const startMission = async (m) => {
   if (!m?.id) return
 
-  // ✅ correction: plus de confirm() => plus de boîte de dialogue navigateur
   actionBusyId.value = m.id
   try {
     await window.axios.post(`/api/missions/${m.id}/commencer`)
@@ -131,14 +148,24 @@ const startMission = async (m) => {
   }
 }
 
-const deleteMission = async (m) => {
+// --- suppression (modal custom)
+const askDelete = (m) => {
   if (!m?.id) return
-  // (On garde la confirmation pour la suppression)
-  if (!confirm('Supprimer cette mission ?')) return
+  if (!isDraft(m)) return
+  toDelete.value = m
+  confirmOpen.value = true
+}
+
+const doDelete = async () => {
+  const m = toDelete.value
+  if (!m?.id) return
+  if (!isDraft(m)) return
 
   actionBusyId.value = m.id
   try {
     await window.axios.delete(`/api/missions/${m.id}`)
+    confirmOpen.value = false
+    toDelete.value = null
     await load()
   } catch (e) {
     alert(e?.response?.data?.message || 'Erreur suppression.')
@@ -238,7 +265,7 @@ const deleteMission = async (m) => {
 
               <td class="px-5 py-4">
                 <div class="flex items-center justify-end gap-2">
-                  <!-- Voir -->
+                  <!-- 👁 Voir -->
                   <button
                     class="w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-700"
                     title="Voir"
@@ -247,8 +274,8 @@ const deleteMission = async (m) => {
                     👁
                   </button>
 
-                  <!-- BROUILLON : Modifier / Soumettre / Supprimer -->
-                  <template v-if="isOwner(m) && norm(m.statut_actuel) === 'brouillon'">
+                  <!-- BROUILLON : modifier + soumettre + supprimer -->
+                  <template v-if="isDraft(m)">
                     <button
                       class="w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-700"
                       title="Modifier"
@@ -268,7 +295,7 @@ const deleteMission = async (m) => {
                     <button
                       class="px-3 py-2 rounded-lg border text-sm font-semibold hover:bg-rose-50 text-rose-700"
                       :disabled="actionBusyId === m.id"
-                      @click="deleteMission(m)"
+                      @click="askDelete(m)"
                     >
                       Supprimer
                     </button>
@@ -292,5 +319,37 @@ const deleteMission = async (m) => {
         </table>
       </div>
     </div>
+
+    <!-- ✅ Modal suppression (custom) -->
+    <div v-if="confirmOpen" class="fixed inset-0 z-50">
+      <div class="absolute inset-0 bg-black/40" @click="confirmOpen = false"></div>
+      <div class="absolute inset-0 flex items-center justify-center p-4">
+        <div class="w-full max-w-md bg-white rounded-2xl shadow-lg border p-6">
+          <div class="text-lg font-bold text-slate-900">Supprimer la mission ?</div>
+          <p class="text-slate-600 mt-2">
+            Cette action est définitive. Voulez-vous vraiment supprimer ce brouillon ?
+          </p>
+
+          <div class="mt-5 flex justify-end gap-2">
+            <button
+              class="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50"
+              :disabled="actionBusyId === (toDelete?.id ?? null)"
+              @click="confirmOpen = false"
+            >
+              Annuler
+            </button>
+
+            <button
+              class="px-4 py-2 rounded-xl bg-rose-600 text-white font-semibold hover:opacity-95 disabled:opacity-60"
+              :disabled="actionBusyId === (toDelete?.id ?? null)"
+              @click="doDelete"
+            >
+              {{ actionBusyId === (toDelete?.id ?? null) ? 'Suppression…' : 'Supprimer' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>

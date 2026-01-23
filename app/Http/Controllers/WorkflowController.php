@@ -13,30 +13,70 @@ class WorkflowController extends Controller
      * ✅ Correction : assigner automatiquement le CH du missionnaire
      */
     public function soumettre(Request $request, Mission $mission)
-    {
-        if ($mission->statut_actuel !== 'brouillon') {
-            return response()->json(['message' => 'Statut invalide'], 422);
-        }
+{
+    $user = $request->user()->load('roles');
 
-        if ((int)$mission->demandeur_id !== (int)$request->user()->id) {
-            return response()->json(['message' => 'Accès refusé'], 403);
-        }
-
-        $chefId = $request->user()->chef_hierarchique_id;
-
-        if (!$chefId) {
-            return response()->json([
-                'message' => "Impossible de soumettre : aucun chef hiérarchique n'est assigné à votre profil."
-            ], 422);
-        }
-
-        $mission->update([
-            'statut_actuel' => 'en_attente_ch',
-            'chef_hierarchique_id' => $chefId,
-        ]);
-
-        return response()->json(['message' => 'Mission soumise']);
+    if ($mission->statut_actuel !== 'brouillon') {
+        return response()->json(['message' => 'Statut invalide'], 422);
     }
+
+    if ((int)$mission->demandeur_id !== (int)$user->id) {
+        return response()->json(['message' => 'Accès refusé'], 403);
+    }
+
+    // ✅ CH n’a pas de chef => CH -> RAF
+    if ($user->hasRole('chef_hierarchique')) {
+        $mission->update([
+            'statut_actuel' => 'valide_ch',        // inbox RAF
+            'validation_ch_id' => $user->id,       // étape CH considérée OK
+            'chef_hierarchique_id' => null,
+        ]);
+        return response()->json(['message' => 'Mission soumise (vers RAF)']);
+    }
+
+    // ✅ RAF -> CP
+    if ($user->hasRole('raf')) {
+        $mission->update([
+            'statut_actuel' => 'valide_raf',       // inbox CP
+            'validation_raf_id' => $user->id,      // budget ok (auto)
+            'chef_hierarchique_id' => null,
+        ]);
+        return response()->json(['message' => 'Mission soumise (vers CP)']);
+    }
+
+    // ✅ CP -> RAF
+    if ($user->hasRole('coordonnateur_de_projet')) {
+        $mission->update([
+            'statut_actuel' => 'valide_ch',        // inbox RAF
+            'validation_cp_id' => $user->id,       // étape CP considérée OK
+            'chef_hierarchique_id' => null,
+        ]);
+        return response()->json(['message' => 'Mission soumise (vers RAF)']);
+    }
+
+    // ✅ ACCP -> RAF
+    if ($user->hasRole('accp')) {
+        $mission->update([
+            'statut_actuel' => 'valide_ch',        // inbox RAF
+            'chef_hierarchique_id' => null,
+        ]);
+        return response()->json(['message' => 'Mission soumise (vers RAF)']);
+    }
+
+    // ✅ Missionnaire normal -> CH (assigné)
+    $chefId = $user->chef_hierarchique_id;
+    if (!$chefId) {
+        return response()->json(['message' => "Aucun chef hiérarchique assigné à votre profil."], 422);
+    }
+
+    $mission->update([
+        'statut_actuel' => 'en_attente_ch',       // inbox CH
+        'chef_hierarchique_id' => $chefId,
+    ]);
+
+    return response()->json(['message' => 'Mission soumise (vers CH)']);
+}
+
 
     /**
      * EN ATTENTE CH → VALIDE CH
@@ -73,23 +113,31 @@ class WorkflowController extends Controller
     /**
      * VALIDE CH → VALIDE RAF
      */
-    public function validerRAF(Request $request, Mission $mission)
-    {
-        if (!$request->user()->hasRole(['raf','admin','administrateur'])) {
-            return response()->json(['message' => 'Rôle RAF requis'], 403);
-        }
-
-        if ($mission->statut_actuel !== 'valide_ch') {
-            return response()->json(['message' => 'Statut invalide'], 422);
-        }
-
-        $mission->update([
-            'statut_actuel' => 'valide_raf',
-            'validation_raf_id' => $request->user()->id,
-        ]);
-
-        return response()->json(['message' => 'Validée RAF']);
+   public function validerRAF(Request $request, Mission $mission)
+{
+    if (!$request->user()->hasRole(['raf','admin','administrateur'])) {
+        return response()->json(['message' => 'Rôle RAF requis'], 403);
     }
+
+    if ($mission->statut_actuel !== 'valide_ch') {
+        return response()->json(['message' => 'Statut invalide'], 422);
+    }
+
+    // le demandeur est CP => CP -> RAF -> ACCP (on saute CP après RAF)
+    $demandeur = $mission->demandeur()->with('roles')->first();
+
+    $nextStatus = ($demandeur && $demandeur->hasRole('coordonnateur_de_projet'))
+        ? 'valide_cp'   // inbox ACCP
+        : 'valide_raf'; // inbox CP 
+
+    $mission->update([
+        'statut_actuel' => $nextStatus,
+        'validation_raf_id' => $request->user()->id,
+    ]);
+
+    return response()->json(['message' => 'Validée RAF']);
+}
+
 
     /**
      * VALIDE RAF → VALIDE CP
@@ -220,27 +268,58 @@ class WorkflowController extends Controller
      * ✅ Correction : si CH, il ne peut rejeter que ses missions assignées
      */
     public function rejeter(Request $request, Mission $mission)
-    {
-        $user = $request->user()->load('roles');
+{
+    $user = $request->user()->load('roles');
 
-        if (in_array($mission->statut_actuel, ['avance_payee','en_cours','cloturee'], true)) {
-            return response()->json(['message' => 'Mission déjà engagée'], 422);
-        }
-
-        if (!$user->hasRole(['chef_hierarchique','raf','coordonnateur_de_projet','admin','administrateur'])) {
-            return response()->json(['message' => 'Accès refusé'], 403);
-        }
-
-        $isAdmin = $user->hasRole(['admin','administrateur']);
-
-        if ($user->hasRole('chef_hierarchique') && !$isAdmin) {
-            if ((int)$mission->chef_hierarchique_id !== (int)$user->id) {
-                return response()->json(['message' => 'Introuvable'], 404);
-            }
-        }
-
-        $mission->update(['statut_actuel' => 'brouillon']);
-
-        return response()->json(['message' => 'Mission rejetée']);
+    if (in_array($mission->statut_actuel, ['avance_payee','en_cours','cloturee'], true)) {
+        return response()->json(['message' => 'Mission déjà engagée'], 422);
     }
+
+    if (!$user->hasRole(['chef_hierarchique','raf','coordonnateur_de_projet','admin','administrateur'])) {
+        return response()->json(['message' => 'Accès refusé'], 403);
+    }
+
+    $isAdmin = $user->hasRole(['admin','administrateur']);
+
+    if ($user->hasRole('chef_hierarchique') && !$isAdmin) {
+        // garde ton contrôle actuel
+        if ((int)($mission->chef_hierarchique_id ?? 0) !== (int)$user->id) {
+            return response()->json(['message' => 'Introuvable'], 404);
+        }
+    }
+
+    $from = $mission->statut_actuel;
+
+    $data = [
+        'statut_actuel' => 'brouillon', // retour missionnaire
+    ];
+
+    if ($from === 'en_attente_ch') {
+        $data['validation_ch_id'] = $user->id;
+    } elseif ($from === 'valide_ch') {
+        $data['validation_raf_id'] = $user->id;
+    } elseif ($from === 'valide_raf') {
+        $data['validation_cp_id'] = $user->id;
+    }
+
+    $mission->update($data);
+
+    return response()->json([
+        'message' => 'Mission rejetée',
+        'mission' => $mission->fresh(),
+    ]);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
 }

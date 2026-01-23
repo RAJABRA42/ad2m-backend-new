@@ -9,13 +9,17 @@ const auth = useAuthStore()
 const missions = ref([])
 const loading = ref(false)
 const error = ref('')
-const actionMsg = ref('')
+const notice = ref('')
+const apiError = ref('')
 const q = ref('')
 
-// éviter double-clic
+// tabs
+const tab = ref('queue') // queue | history | all
+
+// busy action
 const busyId = ref(null)
 
-// modal rejet (custom)
+// modal rejet
 const rejectOpen = ref(false)
 const rejectTarget = ref(null)
 
@@ -34,24 +38,24 @@ const hasRole = (...names) => {
 }
 
 const isAdmin = computed(() => hasRole('admin', 'administrateur'))
+const isCH = computed(() => hasRole('chef_hierarchique'))
+const isRAF = computed(() => hasRole('raf'))
+const isCP = computed(() => hasRole('coordonnateur_de_projet'))
 
-const isValidator = computed(() =>
-  hasRole('administrateur', 'admin', 'chef_hierarchique', 'raf', 'coordonnateur_de_projet')
-)
-
-// ---------- FILE À TRAITER SELON RÔLE ----------
+// ---------- FILE À TRAITER ----------
 const rolePendingKey = computed(() => {
-  if (hasRole('chef_hierarchique')) return 'en_attente_ch'
-  if (hasRole('raf')) return 'valide_ch'
-  if (hasRole('coordonnateur_de_projet')) return 'valide_raf'
+  if (isCH.value) return 'en_attente_ch'
+  if (isRAF.value) return 'valide_ch'
+  if (isCP.value) return 'valide_raf'
   if (isAdmin.value) return 'en_attente_ch'
   return null
 })
 
-// Admin peut changer la file
+// Admin peut choisir une file
 const selectedKey = ref(null)
-onMounted(() => (selectedKey.value = rolePendingKey.value))
-
+onMounted(() => {
+  selectedKey.value = rolePendingKey.value
+})
 const activeKey = computed(() => selectedKey.value || rolePendingKey.value)
 
 // ---------- LABELS ----------
@@ -60,7 +64,7 @@ const stageLabel = (k) => {
     en_attente_ch: 'En attente Chef Hiérarchique',
     valide_ch: 'En attente RAF',
     valide_raf: 'En attente Chef de Projet',
-    valide_cp: 'Transmises à l’ACCP',
+    valide_cp: 'Transmise à la comptabilité (ACCP)',
   }
   return map[k] ?? k
 }
@@ -78,15 +82,17 @@ const prettyStatus = (s) => {
     en_cours: 'En cours',
     cloturee: 'Clôturée',
   }
-  return map[norm(s)] ?? s
+  return map[norm(s)] ?? (s || '—')
 }
 
 const badgeClass = (s) => {
   const k = norm(s)
-  if (k === 'en_attente_ch') return 'bg-blue-100 text-blue-700'
-  if (k === 'valide_ch' || k === 'valide_raf') return 'bg-amber-100 text-amber-700'
-  if (k === 'valide_cp') return 'bg-indigo-100 text-indigo-700'
   if (k === 'brouillon') return 'bg-slate-100 text-slate-700'
+  if (k === 'en_attente_ch') return 'bg-blue-100 text-blue-700'
+  if (k === 'valide_ch' || k === 'valide_raf' || k === 'valide_cp') return 'bg-amber-100 text-amber-700'
+  if (k === 'avance_payee') return 'bg-emerald-100 text-emerald-700'
+  if (k === 'en_cours') return 'bg-indigo-100 text-indigo-700'
+  if (k === 'cloturee') return 'bg-slate-200 text-slate-700'
   return 'bg-slate-100 text-slate-700'
 }
 
@@ -94,7 +100,8 @@ const badgeClass = (s) => {
 const load = async () => {
   loading.value = true
   error.value = ''
-  actionMsg.value = ''
+  notice.value = ''
+  apiError.value = ''
   try {
     const res = await window.axios.get('/api/missions')
     missions.value = res.data?.missions ?? res.data ?? []
@@ -107,77 +114,79 @@ const load = async () => {
 }
 onMounted(load)
 
-// ---------- FILTRAGE FILE "A TRAITER" ----------
-const filtered = computed(() => {
-  if (!isValidator.value || !activeKey.value) return []
-  const key = norm(activeKey.value)
+// ---------- SEARCH ----------
+const matchesSearch = (m) => {
   const query = norm(q.value)
+  if (!query) return true
+  const blob = [
+    m?.objet,
+    m?.destination,
+    m?.motif,
+    m?.demandeur?.name,
+    m?.demandeur?.matricule,
+    prettyStatus(m?.statut_actuel),
+  ].filter(Boolean).join(' ').toLowerCase()
+  return blob.includes(query)
+}
 
-  let arr = missions.value.filter(m => norm(m?.statut_actuel) === key)
+const sortDesc = (a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0)
 
-  if (query) {
-    arr = arr.filter(m => {
-      const blob = [
-        m?.objet,
-        m?.destination,
-        m?.motif,
-        m?.demandeur?.name,
-        m?.demandeur?.matricule,
-        prettyStatus(m?.statut_actuel),
-      ].filter(Boolean).join(' ').toLowerCase()
-      return blob.includes(query)
-    })
-  }
-
-  return arr.sort((a, b) => (b.id ?? 0) - (a.id ?? 0))
+// ---------- QUEUE ----------
+const queue = computed(() => {
+  if (!activeKey.value) return []
+  return missions.value
+    .filter(m => norm(m?.statut_actuel) === norm(activeKey.value))
+    .filter(matchesSearch)
+    .sort(sortDesc)
 })
 
-// ---------- HISTORIQUE (MES VALIDATIONS) ----------
-const historyTitle = computed(() => {
-  if (isAdmin.value) return 'Historique (validations système)'
-  if (hasRole('chef_hierarchique')) return 'Historique (mes validations CH)'
-  if (hasRole('raf')) return 'Historique (mes validations RAF)'
-  if (hasRole('coordonnateur_de_projet')) return 'Historique (mes validations CP)'
-  return 'Historique'
-})
+// ---------- HISTORIQUE (par validateur) ----------
+const meId = computed(() => Number(auth.user?.id || 0))
 
 const history = computed(() => {
-  if (!isValidator.value) return []
-  const uid = Number(auth.user?.id || 0)
-  const query = norm(q.value)
+  const uid = meId.value
+  if (!uid) return []
 
-  let arr = missions.value
+  let arr = []
 
-  if (!isAdmin.value) {
-    if (hasRole('chef_hierarchique')) arr = arr.filter(m => Number(m?.validation_ch_id) === uid)
-    else if (hasRole('raf')) arr = arr.filter(m => Number(m?.validation_raf_id) === uid)
-    else if (hasRole('coordonnateur_de_projet')) arr = arr.filter(m => Number(m?.validation_cp_id) === uid)
-    else arr = []
-  } else {
-    // admin : tout ce qui a déjà une validation
-    arr = arr.filter(m => m?.validation_ch_id || m?.validation_raf_id || m?.validation_cp_id)
+  // ✅ “uniquement les missions qui lui sont soumises” :
+  // on se base sur validation_*_id = “il a traité” (valider ou rejeter)
+  if (isCH.value) {
+    arr = missions.value.filter(m => Number(m?.validation_ch_id) === uid)
+  } else if (isRAF.value) {
+    arr = missions.value.filter(m => Number(m?.validation_raf_id) === uid)
+  } else if (isCP.value) {
+    arr = missions.value.filter(m => Number(m?.validation_cp_id) === uid)
+  } else if (isAdmin.value) {
+    arr = missions.value.filter(m =>
+      Number(m?.validation_ch_id) === uid ||
+      Number(m?.validation_raf_id) === uid ||
+      Number(m?.validation_cp_id) === uid
+    )
   }
 
-  if (query) {
-    arr = arr.filter(m => {
-      const blob = [
-        m?.objet,
-        m?.destination,
-        m?.demandeur?.name,
-        prettyStatus(m?.statut_actuel),
-      ].filter(Boolean).join(' ').toLowerCase()
-      return blob.includes(query)
-    })
-  }
+  // on enlève celles encore “dans sa file à traiter” (sinon doublon)
+  arr = arr.filter(m => norm(m?.statut_actuel) !== norm(activeKey.value))
 
-  return arr.sort((a, b) => (b.id ?? 0) - (a.id ?? 0)).slice(0, 30)
+  return arr.filter(matchesSearch).sort(sortDesc)
 })
 
-// ---------- NAV "VOIR" (LECTURE SEULE) ----------
-const goShow = (m) => {
-  if (!m?.id) return
-  router.push({ name: 'missions.show', params: { id: m.id }, query: { mode: 'view' } })
+const decisionLabel = (m) => {
+  // ✅ si rejet : on retourne au brouillon
+  if (norm(m?.statut_actuel) === 'brouillon') return 'Rejetée (retournée)'
+  return 'Validée (traitée)'
 }
+
+// ---------- RAF : TOUTES + filtre ----------
+const statusFilter = ref('all')
+
+const allMissions = computed(() => {
+  let arr = missions.value.slice()
+  if (statusFilter.value !== 'all') {
+    arr = arr.filter(m => norm(m?.statut_actuel) === norm(statusFilter.value))
+  }
+  return arr.filter(matchesSearch).sort(sortDesc)
+})
 
 // ---------- ENDPOINT VALIDATION ----------
 const endpointForValidate = computed(() => {
@@ -187,11 +196,16 @@ const endpointForValidate = computed(() => {
   return null
 })
 
+// ---------- NAV (lecture seule) ----------
+const viewMission = (m) => {
+  router.push({ name: 'missions.show', params: { id: m.id }, query: { mode: 'view' } })
+}
+
 // ---------- ACTIONS ----------
 const doValidate = async (m) => {
   if (!m?.id) return
 
-  // FIN WORKFLOW → ACCP
+  // fin workflow → ACCP
   if (String(activeKey.value) === 'valide_cp') {
     router.push({ name: 'accp.mission', params: { id: m.id } })
     return
@@ -201,19 +215,19 @@ const doValidate = async (m) => {
   if (!endpoint) return
 
   busyId.value = m.id
-  actionMsg.value = ''
+  notice.value = ''
+  apiError.value = ''
   try {
     await window.axios.post(`/api/missions/${m.id}/${endpoint}`)
-    actionMsg.value = '✅ Validation effectuée.'
     await load()
+    notice.value = '✅ Validée. (Elle reste dans Historique avec “Valider” désactivé)'
   } catch (e) {
-    actionMsg.value = e?.response?.data?.message || 'Action refusée.'
+    apiError.value = e?.response?.data?.message || 'Action refusée.'
   } finally {
     busyId.value = null
   }
 }
 
-// --- REJETER (modal)
 const askReject = (m) => {
   rejectTarget.value = m
   rejectOpen.value = true
@@ -224,15 +238,16 @@ const doReject = async () => {
   if (!m?.id) return
 
   busyId.value = m.id
-  actionMsg.value = ''
+  notice.value = ''
+  apiError.value = ''
   try {
     await window.axios.post(`/api/missions/${m.id}/rejeter`)
-    actionMsg.value = '✅ Mission rejetée (retour en brouillon).'
     rejectOpen.value = false
     rejectTarget.value = null
     await load()
+    notice.value = '✅ Rejetée → retour au missionnaire (et conservée dans Historique).'
   } catch (e) {
-    actionMsg.value = e?.response?.data?.message || 'Rejet refusé.'
+    apiError.value = e?.response?.data?.message || 'Erreur rejet.'
   } finally {
     busyId.value = null
   }
@@ -243,168 +258,256 @@ const doReject = async () => {
   <div class="space-y-6">
     <div class="flex justify-between items-start gap-4">
       <div>
-        <h1 class="text-3xl font-extrabold text-slate-900">Validation des missions</h1>
-        <p class="text-slate-600 mt-1">{{ stageLabel(activeKey) }}</p>
+        <h1 class="text-3xl font-extrabold text-slate-900">Workflow validations</h1>
+        <p class="text-slate-600 mt-1">Voir mission = lecture seule. Valider / rejeter depuis ici.</p>
       </div>
 
-      <button
-        class="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50"
-        @click="load"
-        :disabled="loading"
-      >
+      <button class="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50" @click="load" :disabled="loading">
         Rafraîchir
       </button>
     </div>
 
-    <!-- ADMIN : changer la file -->
-    <div v-if="isAdmin" class="bg-white rounded-2xl border p-4">
-      <label class="text-sm font-semibold text-slate-700">Étape :</label>
-      <select v-model="selectedKey" class="mt-2 w-full rounded-xl border px-4 py-2">
-        <option value="en_attente_ch">En attente CH</option>
-        <option value="valide_ch">En attente RAF</option>
-        <option value="valide_raf">En attente CP</option>
-        <option value="valide_cp">Transmises à l’ACCP</option>
-      </select>
+    <div v-if="notice" class="rounded-2xl border bg-emerald-50 border-emerald-200 px-5 py-3 text-emerald-800">
+      {{ notice }}
+    </div>
+    <div v-if="apiError" class="rounded-2xl border bg-rose-50 border-rose-200 px-5 py-3 text-rose-800">
+      {{ apiError }}
     </div>
 
-    <!-- Recherche -->
-    <input
-      v-model="q"
-      placeholder="Rechercher mission..."
-      class="w-full rounded-xl border px-4 py-3"
-    />
+    <div class="bg-white rounded-2xl border shadow-sm p-4 space-y-3">
+      <div class="flex flex-col md:flex-row md:items-center gap-3 md:justify-between">
+        <div class="flex items-center gap-2">
+          <button class="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50" :class="tab==='queue' ? 'border-slate-900' : ''" @click="tab='queue'">
+            À traiter
+          </button>
 
-    <div v-if="actionMsg" class="bg-slate-50 border rounded-xl p-3 text-sm">
-      {{ actionMsg }}
+          <button class="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50" :class="tab==='history' ? 'border-slate-900' : ''" @click="tab='history'">
+            Historique
+          </button>
+
+          <button v-if="isRAF || isAdmin" class="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50" :class="tab==='all' ? 'border-slate-900' : ''" @click="tab='all'">
+            Toutes (RAF)
+          </button>
+        </div>
+
+        <div class="flex flex-col md:flex-row gap-2 md:items-center">
+          <select
+            v-if="isAdmin && tab==='queue'"
+            v-model="selectedKey"
+            class="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+          >
+            <option value="en_attente_ch">En attente CH</option>
+            <option value="valide_ch">En attente RAF</option>
+            <option value="valide_raf">En attente CP</option>
+            <option value="valide_cp">Vers ACCP</option>
+          </select>
+
+          <select
+            v-if="(isRAF || isAdmin) && tab==='all'"
+            v-model="statusFilter"
+            class="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+          >
+            <option value="all">Tous statuts</option>
+            <option value="brouillon">Brouillon</option>
+            <option value="en_attente_ch">En attente CH</option>
+            <option value="valide_ch">En attente RAF</option>
+            <option value="valide_raf">En attente CP</option>
+            <option value="valide_cp">En attente ACCP</option>
+            <option value="avance_payee">Avance payée</option>
+            <option value="en_cours">En cours</option>
+            <option value="cloturee">Clôturée</option>
+          </select>
+
+          <input
+            v-model="q"
+            type="text"
+            placeholder="Rechercher (objet, destination, demandeur, statut...)"
+            class="w-full md:w-[420px] rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none
+                   focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+          />
+        </div>
+      </div>
+
+      <div v-if="tab==='queue'" class="text-sm text-slate-600">
+        File : <b>{{ stageLabel(activeKey) }}</b>
+      </div>
     </div>
 
-    <!-- TABLE A TRAITER -->
-    <div class="bg-white rounded-2xl border overflow-hidden">
-      <div class="px-6 py-4 border-b font-bold text-slate-900">À traiter</div>
+    <div class="bg-white rounded-2xl border shadow-sm overflow-hidden">
+      <div v-if="loading" class="p-8 text-slate-500">Chargement…</div>
+      <div v-else-if="error" class="p-6 text-rose-700">{{ error }}</div>
 
-      <div v-if="loading" class="p-6 text-slate-500">Chargement…</div>
-      <div v-else-if="filtered.length === 0" class="p-8 text-center text-slate-500">
-        Aucune mission à traiter
-      </div>
+      <!-- QUEUE -->
+      <template v-else-if="tab==='queue'">
+        <div v-if="queue.length === 0" class="p-10 text-center text-slate-500">Aucune mission à traiter.</div>
 
-      <table v-else class="w-full">
-        <thead class="bg-slate-50 text-xs font-semibold text-slate-500">
-          <tr>
-            <th class="px-5 py-3 text-left">Mission</th>
-            <th class="px-5 py-3">Destination</th>
-            <th class="px-5 py-3">Demandeur</th>
-            <th class="px-5 py-3">Statut</th>
-            <th class="px-5 py-3 text-right">Actions</th>
-          </tr>
-        </thead>
+        <div v-else class="overflow-x-auto">
+          <table class="min-w-[980px] w-full">
+            <thead class="bg-slate-50 text-xs font-semibold text-slate-500">
+              <tr class="text-left">
+                <th class="px-5 py-3">MISSION</th>
+                <th class="px-5 py-3">DEMANDEUR</th>
+                <th class="px-5 py-3">DESTINATION</th>
+                <th class="px-5 py-3">STATUT</th>
+                <th class="px-5 py-3 text-right">ACTIONS</th>
+              </tr>
+            </thead>
 
-        <tbody class="divide-y">
-          <tr v-for="m in filtered" :key="m.id" class="hover:bg-slate-50">
-            <td class="px-5 py-4 font-semibold">
-              {{ m.objet || ('Mission #' + m.id) }}
-            </td>
+            <tbody class="divide-y">
+              <tr v-for="m in queue" :key="m.id" class="hover:bg-slate-50">
+                <td class="px-5 py-4">
+                  <div class="font-semibold text-slate-900">{{ m.objet || ('Mission #' + m.id) }}</div>
+                  <div class="text-sm text-slate-600 line-clamp-1">{{ m.motif || '—' }}</div>
+                </td>
 
-            <td class="px-5 py-4">{{ m.destination }}</td>
+                <td class="px-5 py-4 text-slate-700">{{ m?.demandeur?.name || '—' }}</td>
 
-            <td class="px-5 py-4">{{ m.demandeur?.name }}</td>
+                <td class="px-5 py-4 text-slate-700">
+                  {{ m.destination || '—' }}
+                  <div class="text-xs text-slate-500">{{ m.moyen_deplacement || '—' }}</div>
+                </td>
 
-            <td class="px-5 py-4">
-              <span class="px-3 py-1 rounded-full text-xs font-semibold" :class="badgeClass(m.statut_actuel)">
-                {{ prettyStatus(m.statut_actuel) }}
-              </span>
-            </td>
+                <td class="px-5 py-4">
+                  <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold" :class="badgeClass(m.statut_actuel)">
+                    {{ prettyStatus(m.statut_actuel) }}
+                  </span>
+                </td>
 
-            <td class="px-5 py-4">
-              <div class="flex items-center justify-end gap-2">
-                <!-- 👁 Voir (lecture seule) -->
-                <button
-                  class="w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-700"
-                  title="Voir"
-                  @click="goShow(m)"
-                >
-                  👁
-                </button>
+                <td class="px-5 py-4">
+                  <div class="flex items-center justify-end gap-2">
+                    <button class="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50" @click="viewMission(m)">
+                      👁 Voir
+                    </button>
 
-                <!-- Valider/Rejeter (sauf file ACCP) -->
-                <template v-if="activeKey !== 'valide_cp'">
-                  <button
-                    class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold disabled:opacity-60"
-                    :disabled="busyId === m.id"
-                    @click="doValidate(m)"
-                  >
-                    Valider
-                  </button>
+                    <button
+                      class="px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:opacity-95 disabled:opacity-60"
+                      :disabled="busyId === m.id"
+                      @click="doValidate(m)"
+                    >
+                      {{ busyId === m.id ? 'Validation…' : 'Valider' }}
+                    </button>
 
-                  <button
-                    class="px-4 py-2 rounded-lg border border-rose-300 text-rose-700 text-sm font-semibold hover:bg-rose-50 disabled:opacity-60"
-                    :disabled="busyId === m.id"
-                    @click="askReject(m)"
-                  >
-                    Rejeter
-                  </button>
-                </template>
+                    <button
+                      class="px-3 py-2 rounded-lg border border-rose-300 text-rose-700 text-sm font-semibold hover:bg-rose-50 disabled:opacity-60"
+                      :disabled="busyId === m.id"
+                      @click="askReject(m)"
+                    >
+                      Rejeter
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
 
-                <template v-else>
-                  <button
-                    class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-semibold"
-                    @click="doValidate(m)"
-                  >
-                    Ouvrir ACCP
-                  </button>
-                </template>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+          </table>
+        </div>
+      </template>
 
-    <!-- HISTORIQUE -->
-    <div class="bg-white rounded-2xl border overflow-hidden">
-      <div class="px-6 py-4 border-b flex items-center justify-between">
-        <div class="font-bold text-slate-900">{{ historyTitle }}</div>
-        <div class="text-xs text-slate-500">Basé sur validation_ch_id / validation_raf_id / validation_cp_id</div>
-      </div>
+      <!-- HISTORIQUE -->
+      <template v-else-if="tab==='history'">
+        <div v-if="history.length === 0" class="p-10 text-center text-slate-500">Aucun historique.</div>
 
-      <div v-if="history.length === 0" class="p-8 text-center text-slate-500">
-        Aucun historique pour l’instant.
-      </div>
+        <div v-else class="overflow-x-auto">
+          <table class="min-w-[980px] w-full">
+            <thead class="bg-slate-50 text-xs font-semibold text-slate-500">
+              <tr class="text-left">
+                <th class="px-5 py-3">MISSION</th>
+                <th class="px-5 py-3">DEMANDEUR</th>
+                <th class="px-5 py-3">STATUT ACTUEL</th>
+                <th class="px-5 py-3">DÉCISION</th>
+                <th class="px-5 py-3 text-right">ACTIONS</th>
+              </tr>
+            </thead>
 
-      <div v-else class="overflow-x-auto">
-        <table class="min-w-[980px] w-full">
-          <thead class="bg-slate-50 text-xs font-semibold text-slate-500">
-            <tr class="text-left">
-              <th class="px-5 py-3">MISSION</th>
-              <th class="px-5 py-3">DEMANDEUR</th>
-              <th class="px-5 py-3">STATUT ACTUEL</th>
-              <th class="px-5 py-3 text-right">VOIR</th>
-            </tr>
-          </thead>
+            <tbody class="divide-y">
+              <tr v-for="m in history" :key="m.id" class="hover:bg-slate-50">
+                <td class="px-5 py-4">
+                  <div class="font-semibold text-slate-900">{{ m.objet || ('Mission #' + m.id) }}</div>
+                  <div class="text-sm text-slate-600 line-clamp-1">{{ m.destination || '—' }}</div>
+                </td>
 
-          <tbody class="divide-y">
-            <tr v-for="m in history" :key="m.id" class="hover:bg-slate-50">
-              <td class="px-5 py-4 font-semibold text-slate-900">
-                {{ m.objet || ('Mission #' + m.id) }}
-              </td>
-              <td class="px-5 py-4 text-slate-700">{{ m.demandeur?.name || '—' }}</td>
-              <td class="px-5 py-4">
-                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold" :class="badgeClass(m.statut_actuel)">
-                  {{ prettyStatus(m.statut_actuel) }}
-                </span>
-              </td>
-              <td class="px-5 py-4 text-right">
-                <button
-                  class="w-9 h-9 rounded-lg hover:bg-slate-100 inline-flex items-center justify-center text-slate-700"
-                  title="Voir"
-                  @click="goShow(m)"
-                >
-                  👁
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+                <td class="px-5 py-4 text-slate-700">{{ m?.demandeur?.name || '—' }}</td>
+
+                <td class="px-5 py-4">
+                  <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold" :class="badgeClass(m.statut_actuel)">
+                    {{ prettyStatus(m.statut_actuel) }}
+                  </span>
+                </td>
+
+                <td class="px-5 py-4">
+                  <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
+                    {{ decisionLabel(m) }}
+                  </span>
+                </td>
+
+                <td class="px-5 py-4">
+                  <div class="flex items-center justify-end gap-2">
+                    <button class="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50" @click="viewMission(m)">
+                      👁 Voir (lecture seule)
+                    </button>
+
+                    <!-- ✅ Valider visible mais jamais cliquable dans l'historique -->
+                    <button class="px-3 py-2 rounded-lg bg-slate-200 text-slate-600 text-sm font-semibold cursor-not-allowed" disabled>
+                      Valider (désactivé)
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+
+          </table>
+        </div>
+      </template>
+
+      <!-- RAF : TOUTES -->
+      <template v-else>
+        <div v-if="allMissions.length === 0" class="p-10 text-center text-slate-500">Aucune mission.</div>
+
+        <div v-else class="overflow-x-auto">
+          <table class="min-w-[980px] w-full">
+            <thead class="bg-slate-50 text-xs font-semibold text-slate-500">
+              <tr class="text-left">
+                <th class="px-5 py-3">MISSION</th>
+                <th class="px-5 py-3">DEMANDEUR</th>
+                <th class="px-5 py-3">DESTINATION</th>
+                <th class="px-5 py-3">STATUT</th>
+                <th class="px-5 py-3 text-right">ACTIONS</th>
+              </tr>
+            </thead>
+
+            <tbody class="divide-y">
+              <tr v-for="m in allMissions" :key="m.id" class="hover:bg-slate-50">
+                <td class="px-5 py-4">
+                  <div class="font-semibold text-slate-900">{{ m.objet || ('Mission #' + m.id) }}</div>
+                  <div class="text-sm text-slate-600 line-clamp-1">{{ m.motif || '—' }}</div>
+                </td>
+
+                <td class="px-5 py-4 text-slate-700">{{ m?.demandeur?.name || '—' }}</td>
+
+                <td class="px-5 py-4 text-slate-700">
+                  {{ m.destination || '—' }}
+                  <div class="text-xs text-slate-500">{{ m.moyen_deplacement || '—' }}</div>
+                </td>
+
+                <td class="px-5 py-4">
+                  <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold" :class="badgeClass(m.statut_actuel)">
+                    {{ prettyStatus(m.statut_actuel) }}
+                  </span>
+                </td>
+
+                <td class="px-5 py-4">
+                  <div class="flex items-center justify-end gap-2">
+                    <button class="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50" @click="viewMission(m)">
+                      👁 Voir (lecture seule)
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+
+          </table>
+        </div>
+      </template>
     </div>
 
     <!-- MODAL REJET -->
@@ -414,19 +517,15 @@ const doReject = async () => {
         <div class="w-full max-w-md bg-white rounded-2xl shadow-lg border p-6">
           <div class="text-lg font-bold text-slate-900">Rejeter la mission ?</div>
           <p class="text-slate-600 mt-2">
-            Cette action renverra la mission en <b>brouillon</b>. Le missionnaire pourra la modifier puis re-soumettre.
+            Elle retournera au <b>brouillon</b> chez le missionnaire et restera dans votre <b>Historique</b>.
           </p>
 
           <div class="mt-5 flex justify-end gap-2">
-            <button class="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50" @click="rejectOpen = false">
+            <button class="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50" :disabled="busyId === rejectTarget?.id" @click="rejectOpen = false">
               Annuler
             </button>
-            <button
-              class="px-4 py-2 rounded-xl bg-rose-600 text-white font-semibold hover:opacity-95 disabled:opacity-60"
-              :disabled="busyId === (rejectTarget?.id ?? null)"
-              @click="doReject"
-            >
-              {{ busyId === (rejectTarget?.id ?? null) ? 'Rejet…' : 'Rejeter' }}
+            <button class="px-4 py-2 rounded-xl bg-rose-600 text-white font-semibold hover:opacity-95 disabled:opacity-60" :disabled="busyId === rejectTarget?.id" @click="doReject">
+              {{ busyId === rejectTarget?.id ? 'Rejet…' : 'Rejeter' }}
             </button>
           </div>
         </div>

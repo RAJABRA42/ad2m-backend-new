@@ -19,6 +19,7 @@ return new class extends Migration
             $table->foreignId('validation_ch_id')->nullable()->constrained('users'); // Chef Hiérarchique
             $table->foreignId('validation_raf_id')->nullable()->constrained('users'); // RAF
             $table->foreignId('validation_cp_id')->nullable()->constrained('users'); // Chef de Projet
+            
             $table->foreignId('chef_hierarchique_id')->nullable()->constrained('users')->nullOnDelete();
 
             // --- INFORMATIONS DE MISSION ---
@@ -49,10 +50,10 @@ return new class extends Migration
 
               $table->boolean('pj_regularise')->default(false);
 
-            // // ✅ quand ACCP a marqué la régularisation
+            // quand ACCP a marqué la régularisation
             $table->dateTime('date_pj_regularise')->nullable();
 
-            // // ✅ note libre (ex: "PJ OK", "Manque facture hôtel", etc.)
+            //  note libre (ex: "PJ OK", "Manque facture hôtel", etc.)
              $table->text('note_regularisation')->nullable();
             
 

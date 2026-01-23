@@ -7,6 +7,7 @@ use App\Http\Controllers\MissionController;
 use App\Http\Controllers\WorkflowController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\AvanceController;
+use App\Http\Controllers\AdminController;
 
 
 
@@ -41,5 +42,22 @@ Route::middleware([EnsureFrontendRequestsAreStateful::class, 'auth:sanctum'])->g
         Route::post('/avances', [AvanceController::class, 'store']);
     });
     Route::post('/missions/{mission}/regulariser-pj', [WorkflowController::class, 'regulariserPJ']);
+    
+    Route::prefix('admin')->middleware('admin')->group(function () {
+    
+    Route::get('/hierarchy', [AdminController::class, 'hierarchy']);
+    Route::patch('/users/{user}/chef', [AdminController::class, 'updateChef']);
+
+     Route::get('/roles', [AdminController::class, 'roles']);
+    Route::get('/users', [AdminController::class, 'usersIndex']);
+    Route::post('/users', [AdminController::class, 'usersStore']);
+    Route::patch('/users/{user}', [AdminController::class, 'usersUpdate']);
+
+
+
+
+});
+
+
 
 });

@@ -34,11 +34,15 @@ class MissionController extends Controller
         $mine = $request->boolean('mine');
         $isAdmin = $user->hasRole(['admin', 'administrateur']);
 
-        // ✅ FIX MINIMAL : CH voit seulement les missions soumises à lui (sauf si mine=true)
+        
+       // (missions assignées) OU (missions déjà traitées par lui)
         if ($user->hasRole('chef_hierarchique') && !$isAdmin && !$mine) {
-            $query->where('statut_actuel', 'en_attente_ch')
-                  ->where('chef_hierarchique_id', $user->id);
-        }
+                $query->where(function ($q) use ($user) {
+                    $q->where('chef_hierarchique_id', $user->id)
+                    ->orWhere('validation_ch_id', $user->id);
+                });
+            }
+
         // comportement existant : mes missions si mine=true ou si non-décideur
         elseif ($mine || !$isDecisionMaker) {
             $query->where('demandeur_id', $user->id);
@@ -64,13 +68,15 @@ class MissionController extends Controller
             return response()->json(['message' => 'Accès refusé'], 403);
         }
 
-        // ✅ FIX : CH (non admin) ne voit pas les missions d'autres CH (même via URL)
+        
         $isAdmin = $user->hasRole(['admin', 'administrateur']);
+        
         if ($user->hasRole('chef_hierarchique') && !$isAdmin) {
-            $isOwner = (int)$mission->demandeur_id === (int)$user->id;
-            $isAssigned = (int)$mission->chef_hierarchique_id === (int)$user->id;
+            $isOwner    = (int)$mission->demandeur_id === (int)$user->id;
+            $isAssigned = (int)($mission->chef_hierarchique_id ?? 0) === (int)$user->id;
+            $isHandled  = (int)($mission->validation_ch_id ?? 0) === (int)$user->id; 
 
-            if (!$isOwner && !$isAssigned) {
+            if (!$isOwner && !$isAssigned && !$isHandled) {
                 return response()->json(['message' => 'Introuvable'], 404);
             }
         }

@@ -11,6 +11,8 @@ import MissionShow from './pages/MissionShow.vue'
 import Validation from './pages/Validation.vue'
 import SuiviAccp from './pages/SuiviAccp.vue'
 import MissionCreate from './pages/MissionCreate.vue'
+import Admin from './pages/Admin.vue'
+
 
 
 // ✅ normalisation robuste
@@ -54,6 +56,9 @@ const routes = [
       { path: 'missions/:id', name: 'missions.show', component: MissionShow },
 
       { path: 'missions/create', name: 'missions.create', component: MissionCreate },
+
+      { path: 'admin', name: 'admin', component: Admin, meta: { requiresAdmin: true } },
+
 
 
       {
@@ -129,6 +134,13 @@ router.beforeEach(async (to) => {
     const ok = hasRole(auth.user, 'accp', 'admin', 'administrateur')
     if (!ok) return { name: 'dashboard' }
   }
+
+  const needsAdmin = to.matched.some(r => r.meta.requiresAdmin)
+if (needsAdmin) {
+  const ok = hasRole(auth.user, 'admin', 'administrateur')
+  if (!ok) return { name: 'dashboard' }
+}
+
 })
 
 export default router

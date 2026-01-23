@@ -19,8 +19,21 @@ const handleLogin = async () => {
   }
 
   const ok = await auth.login({ email: email.value, password: password.value })
-  if (ok) router.push({ name: 'dashboard' })
-  else error.value = 'Identifiants incorrects.'
+  if (ok) {
+  const roles = (auth.user?.roles ?? [])
+    .map(r => (typeof r === 'string' ? r : r?.name))
+    .filter(Boolean)
+    .map(r => String(r).toLowerCase())
+
+  if (roles.includes('administrateur') || roles.includes('admin')) {
+    router.push({ name: 'admin' })
+  } else {
+    router.push({ name: 'dashboard' })
+  }
+} else {
+  error.value = 'Identifiants incorrects.'
+}
+
 }
 </script>
 

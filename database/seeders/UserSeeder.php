@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Hash;
 
 class UserSeeder extends Seeder
 {
-    private function upsertUser(array $data, array $roleNames = []): User
+    private function upsertUser(array $data, array $roleNames): User
     {
         $user = User::updateOrCreate(
             ['email' => $data['email']],
@@ -26,124 +26,116 @@ class UserSeeder extends Seeder
             ]
         );
 
-        if (!empty($roleNames)) {
-            $roleIds = Role::whereIn('name', $roleNames)->pluck('id')->all();
-            $now = now();
-            $syncData = [];
-            foreach ($roleIds as $rid) {
-                $syncData[$rid] = ['created_at' => $now, 'updated_at' => $now];
-            }
-            $user->roles()->sync($syncData);
-        }
+        $roleIds = Role::whereIn('name', $roleNames)->pluck('id')->all();
+
+        // pivot a timestamps, mais nullable => OK même sans withTimestamps()
+        $user->roles()->sync($roleIds);
 
         return $user;
     }
 
     public function run(): void
     {
-        // Admin
+        $pwd = 'password';
+
+        // ✅ ADMIN (seul vrai “super user”)
         $admin = $this->upsertUser([
-            'matricule' => 'AD2M001',
+            'matricule' => 'AD2M-ADMIN',
             'nom'       => 'Administrateur',
             'name'      => 'Admin AD2M',
             'email'     => 'admin@ad2m.com',
-            'telephone' => '0340000001',
+            'telephone' => '0340000000',
             'unite'     => 'Direction',
             'poste'     => 'Administrateur',
-            'password'  => 'password',
-        ], ['administrateur']); // (tu peux ajouter 'admin' aussi si tu veux)
+            'password'  => $pwd,
+            'chef_hierarchique_id' => null,
+        ], ['administrateur','admin']);
 
-        // 3 Chefs hiérarchiques
+        // ✅ 2 CH (pas de chef)
         $ch1 = $this->upsertUser([
-            'matricule' => 'CH001',
+            'matricule' => 'CH-001',
             'nom'       => 'Chef',
             'name'      => 'CH Nord',
-            'email'     => 'ch1@example.com',
+            'email'     => 'ch1@ad2m.com',
             'telephone' => '0340000010',
             'unite'     => 'Opérations',
-            'poste'     => "Chef d'Unité",
-            'password'  => 'password',
-            'chef_hierarchique_id' => $admin->id,
+            'poste'     => "Chef Hiérarchique",
+            'password'  => $pwd,
+            'chef_hierarchique_id' => null,
         ], ['chef_hierarchique']);
 
         $ch2 = $this->upsertUser([
-            'matricule' => 'CH002',
+            'matricule' => 'CH-002',
             'nom'       => 'Chef',
             'name'      => 'CH Sud',
-            'email'     => 'ch2@example.com',
+            'email'     => 'ch2@ad2m.com',
             'telephone' => '0340000011',
             'unite'     => 'Opérations',
-            'poste'     => "Chef d'Unité",
-            'password'  => 'password',
-            'chef_hierarchique_id' => $admin->id,
+            'poste'     => "Chef Hiérarchique",
+            'password'  => $pwd,
+            'chef_hierarchique_id' => null,
         ], ['chef_hierarchique']);
 
-        $ch3 = $this->upsertUser([
-            'matricule' => 'CH003',
-            'nom'       => 'Chef',
-            'name'      => 'CH Est',
-            'email'     => 'ch3@example.com',
-            'telephone' => '0340000012',
-            'unite'     => 'Opérations',
-            'poste'     => "Chef d'Unité",
-            'password'  => 'password',
-            'chef_hierarchique_id' => $admin->id,
-        ], ['chef_hierarchique']);
-
-        // Décideurs
+        // ✅ RAF / CP / ACCP (pas de chef, règle simple)
         $raf = $this->upsertUser([
-            'matricule' => 'RAF001',
+            'matricule' => 'RAF-001',
             'nom'       => 'Responsable',
             'name'      => 'RAF Finance',
-            'email'     => 'raf@example.com',
+            'email'     => 'raf@ad2m.com',
             'telephone' => '0340000003',
             'unite'     => 'Finance',
             'poste'     => 'RAF',
-            'password'  => 'password',
-            'chef_hierarchique_id' => $admin->id,
+            'password'  => $pwd,
+            'chef_hierarchique_id' => null,
         ], ['raf']);
 
         $cp = $this->upsertUser([
-            'matricule' => 'CP001',
+            'matricule' => 'CP-001',
             'nom'       => 'Coordonnateur',
             'name'      => 'Coordonnateur Projet',
-            'email'     => 'cp@example.com',
+            'email'     => 'cp@ad2m.com',
             'telephone' => '0340000004',
             'unite'     => 'Projet',
             'poste'     => 'CP',
-            'password'  => 'password',
-            'chef_hierarchique_id' => $admin->id,
+            'password'  => $pwd,
+            'chef_hierarchique_id' => null,
         ], ['coordonnateur_de_projet']);
 
         $accp = $this->upsertUser([
-            'matricule' => 'ACCP001',
+            'matricule' => 'ACCP-001',
             'nom'       => 'Agent',
-            'name'      => 'ACCP Paiements',
-            'email'     => 'accp@example.com',
+            'name'      => 'ACCP Paiement',
+            'email'     => 'accp@ad2m.com',
             'telephone' => '0340000005',
-            'unite'     => 'Comptabilité',
+            'unite'     => 'Compta',
             'poste'     => 'ACCP',
-            'password'  => 'password',
-            'chef_hierarchique_id' => $raf->id,
+            'password'  => $pwd,
+            'chef_hierarchique_id' => null,
         ], ['accp']);
 
-        // Missionnaires : 9 (3 par CH)
-        $chs = [$ch1, $ch2, $ch3];
-        for ($i = 1; $i <= 9; $i++) {
-            $num = str_pad((string)$i, 3, '0', STR_PAD_LEFT);
-            $chef = $chs[($i - 1) % 3];
+        // ✅ 2 missionnaires (chacun a son CH)
+        $this->upsertUser([
+            'matricule' => 'M-001',
+            'nom'       => 'Missionnaire',
+            'name'      => 'Missionnaire 1',
+            'email'     => 'm1@ad2m.com',
+            'telephone' => '0341000001',
+            'unite'     => 'Opérations',
+            'poste'     => 'Agent terrain',
+            'password'  => $pwd,
+            'chef_hierarchique_id' => $ch1->id,
+        ], ['missionnaire']);
 
-            $this->upsertUser([
-                'matricule' => "M{$num}",
-                'nom'       => "Missionnaire {$num}",
-                'name'      => "User Mission {$num}",
-                'email'     => "mission{$num}@example.com",
-                'telephone' => "0341000{$num}",
-                'unite'     => 'Opérations',
-                'poste'     => 'Agent terrain',
-                'password'  => 'password',
-                'chef_hierarchique_id' => $chef->id,
-            ], ['missionnaire']);
-        }
+        $this->upsertUser([
+            'matricule' => 'M-002',
+            'nom'       => 'Missionnaire',
+            'name'      => 'Missionnaire 2',
+            'email'     => 'm2@ad2m.com',
+            'telephone' => '0341000002',
+            'unite'     => 'Opérations',
+            'poste'     => 'Agent terrain',
+            'password'  => $pwd,
+            'chef_hierarchique_id' => $ch2->id,
+        ], ['missionnaire']);
     }
 }
